@@ -1,0 +1,12 @@
+
+/dts-v1/;
+#include "cs75xx.dtsi"
+
+/ {
+	model = "ELECOM NSB-3NR/3MS Network-Attached Storage series";
+
+	memory {
+		device_type = "memory";
+		reg = <0x00000000 0x40000000>; /* 1GB */
+	};
+};

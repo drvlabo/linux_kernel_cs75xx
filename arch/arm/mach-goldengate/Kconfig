@@ -1,0 +1,14 @@
+menuconfig ARCH_GOLDENGATE
+	bool "Cortina Systems Golden-Gate family"
+	depends on ARCH_MULTI_V7
+	select ARM_AMBA
+	select ARM_GIC
+	select HAVE_SMP
+	select PINCTRL
+	select PCI
+	help
+	  Support for Cortina CS7542/7522 SoCs
+
+if ARCH_GOLDENGATE
+
+endif	# ARCH_GOLDENGATE
