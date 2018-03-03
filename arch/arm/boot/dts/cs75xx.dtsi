@@ -1,5 +1,6 @@
 
 #include "skeleton.dtsi"
+#include <dt-bindings/clock/cs75xx-clock.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 / {
 	compatible = "cortina,cs75xx";
@@ -33,6 +34,7 @@
 			interrupt-controller;
 			reg = <0xF8001000 0x1000>,
 			      <0xF8000100 0x0100>;
+			status = "ok";
 		};
 
 		l2: l2-cache-controller@F5010000 {
@@ -40,11 +42,37 @@
 			reg = <0xF5010000 0x1000>;
 			cache-unified;
 			cache-level = <2>;
+			status = "ok";
+		};
+
+
+		mainclk: clock@F000000C {
+			compatible = "cortina,cs75xx-clk";
+			reg = <0xF000000C 0x04>;	/* global strap */
+			#clock-cells = <1>;
 		};
 
 		global_timer: timer@F8000200 {
 			compatible = "arm,cortex-a9-global-timer";
+			interrupt-parent = <&gic>;
 			reg = <0xF8000200 0x20>;
+			interrupts = <GIC_PPI 27 0x301>;
+			clocks = <&mainclk CS75XX_CLK_APB>;
+		};
+
+		scutimer: timer@F8000600 {
+			compatible = "arm,cortex-a9-twd-timer";
+			interrupt-parent = <&gic>;
+			reg = <0xF8000600 0x20>;
+			interrupts = <GIC_PPI 29 0x301>;
+			status = "ok";
+		};
+
+		uart0: serial@F0070110 {
+			compatible = "cortina,cs75xx-uart";
+			reg = <0xF0070110 0x30>;
+			interrupts = <GIC_SPI 38 4>;
+			status = "ok";
 		};
 	};
 };

@@ -9,4 +9,12 @@
 		device_type = "memory";
 		reg = <0x00000000 0x40000000>; /* 1GB */
 	};
+
+	chosen {
+#if 1
+		bootargs = "console=ttyS0,115200";
+#else
+		bootargs = "console=ttyS0,115200 lpj=7970816";
+#endif
+	};
 };
