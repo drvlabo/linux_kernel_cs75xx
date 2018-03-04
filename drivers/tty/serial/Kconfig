@@ -1663,6 +1663,29 @@ config SERIAL_MVEBU_CONSOLE
 	  and warnings and which allows logins in single user mode)
 	  Otherwise, say 'N'.
 
+config SERIAL_CORTINA 
+        bool "CORTINA serial port support" 
+        depends on ARCH_GOLDENGATE && ARM 
+        select SERIAL_CORE 
+        help 
+          If you have a board based on a Cortina, you 
+          can enable its onboard serial port by enabling this option. 
+ 
+config SERIAL_CORTINA_CONSOLE 
+        bool "Console on CORTINA serial port" 
+        depends on SERIAL_CORTINA=y 
+        select SERIAL_CORE_CONSOLE 
+        help 
+          If you have enabled the serial port on the Cortina baseboard 
+          you can make it the console by answering Y to this option. 
+ 
+          Even if you say Y here, the currently visible virtual console 
+          (/dev/tty0) will still be used as the system console by default, but 
+          you can alter that using a kernel command line option such as 
+          "console=ttyS0". (Try "man bootparam" or see the documentation of
+          your boot loader (lilo or loadlin) about how to pass options to the
+          kernel at boot time.)
+
 endmenu
 
 config SERIAL_MCTRL_GPIO
