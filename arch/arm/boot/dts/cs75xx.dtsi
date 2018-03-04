@@ -73,6 +73,7 @@
 			reg = <0xF0070110 0x30>;
 			interrupts = <GIC_SPI 38 4>;
 			status = "ok";
+			clocks = <&mainclk CS75XX_CLK_APB>;
 		};
 	};
 };
