@@ -4,6 +4,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/of_platform.h>
+#include <linux/irqchip.h>
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
@@ -124,9 +125,18 @@ static struct map_desc goldengate_io_desc[] __initdata = {
 
 static void __init gg_map_io(void)
 {
+#if 0
+	debug_ll_io_init();
+#endif
 	iotable_init(goldengate_io_desc, ARRAY_SIZE(goldengate_io_desc));
 }
 
+#if 0
+static void __init gg_irq_init(void)
+{
+	irqchip_init();
+}
+#endif
 
 
 static const char* const gg_match[] __initconst = {
@@ -136,5 +146,8 @@ static const char* const gg_match[] __initconst = {
 
 DT_MACHINE_START(CS75XX_DT, "Cortina CS75xx (Device Tree)")
 	.map_io		= gg_map_io,
+#if 0
+	.init_irq	= gg_irq_init,
+#endif
 	.dt_compat	= gg_match,
 MACHINE_END
