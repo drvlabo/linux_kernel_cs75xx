@@ -5,6 +5,10 @@
 / {
 	compatible = "cortina,cs75xx";
 
+	aliases {
+		serial0 = &uart0;
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -60,7 +64,7 @@
 			clocks = <&mainclk CS75XX_CLK_APB>;
 		};
 
-		scutimer: timer@F8000600 {
+		scutimer: scu_timer@F8000600 {
 			compatible = "arm,cortex-a9-twd-timer";
 			interrupt-parent = <&gic>;
 			reg = <0xF8000600 0x20>;
@@ -71,7 +75,11 @@
 		uart0: serial@F0070110 {
 			compatible = "cortina,cs75xx-uart";
 			reg = <0xF0070110 0x30>;
+#if 0
+			interrupts = <GIC_SPI 22 4>;
+#else
 			interrupts = <GIC_SPI 38 4>;
+#endif
 			status = "ok";
 			clocks = <&mainclk CS75XX_CLK_APB>;
 		};
