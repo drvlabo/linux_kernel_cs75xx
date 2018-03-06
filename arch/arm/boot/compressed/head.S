@@ -17,6 +17,8 @@
  AR_CLASS(	.arch	armv7-a	)
  M_CLASS(	.arch	armv7-m	)
 
+#define DEBUG
+
 /*
  * Debugging stuff
  *
@@ -206,6 +208,13 @@ not_angel:
 		ldr	r4, =zreladdr
 #endif
 
+#if 0
+		kputc	#'@'
+		kputc	#'@'
+		kphex	r4,8
+		kputc	#'\n'
+#endif
+
 		/*
 		 * Set up a page table only if it won't overwrite ourself.
 		 * That means r4 < pc || r4 - 16k page directory > &_end.
@@ -219,6 +228,12 @@ not_angel:
 		cmpcc	r4, r0
 		orrcc	r4, r4, #1		@ remember we skipped cache_on
 		blcs	cache_on
+
+#if 0
+		kputc	#'@'
+		kputc	#'2'
+		kputc	#'\n'
+#endif
 
 restart:	adr	r0, LC0
 		ldmia	r0, {r1, r2, r3, r6, r10, r11, r12}
@@ -539,6 +554,12 @@ not_relocated:	mov	r0, #0
  *   r7  = architecture ID
  *   r8  = atags pointer
  */
+#if 0
+		kputc	#'*'
+		kputc	#'*'
+		kphex	r7, 8
+		kputc	#'\n'
+#endif
 		mov	r0, r4
 		mov	r1, sp			@ malloc space above stack
 		add	r2, sp, #0x10000	@ 64k max
@@ -546,6 +567,11 @@ not_relocated:	mov	r0, #0
 		bl	decompress_kernel
 		bl	cache_clean_flush
 		bl	cache_off
+#if 0
+		kputc	#'@'
+		kputc	#'4'
+		kputc	#'\n'
+#endif
 		mov	r1, r7			@ restore architecture number
 		mov	r2, r8			@ restore atags pointer
 
@@ -680,6 +706,51 @@ __armv3_mpu_cache_on:
 #define CB_BITS 0x0c
 #endif
 
+#if 1
+__setup_mmu:	sub	r3, r4, #16384		@ Page directory size
+		bic	r3, r3, #0xff		@ Align the pointer
+		bic	r3, r3, #0x3f00
+/*
+ * Initialise the page tables, turning on the cacheable and bufferable
+ * bits for the RAM area only.
+ */
+		mov	r0, r3
+		mov	r9, r0, lsr #18
+		mov	r9, r9, lsl #18		@ start of RAM
+		add	r10, r9, #0x10000000	@ a reasonable RAM size
+		mov	r1, #0x12
+		orr	r1, r1, #3 << 10
+		add	r2, r3, #16384
+1:		cmp	r1, r9			@ if virt > start of RAM
+#ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
+		orrhs	r1, r1, #0x08		@ set cacheable
+#else
+		orrhs	r1, r1, #0x0c		@ set cacheable, bufferable
+#endif
+		cmp	r1, r10			@ if virt > end of RAM
+		bichs	r1, r1, #0x0c		@ clear cacheable, bufferable
+		str	r1, [r0], #4		@ 1:1 mapping
+		add	r1, r1, #1048576
+		teq	r0, r2
+		bne	1b
+/*
+ * If ever we are running from Flash, then we surely want the cache
+ * to be enabled also for our execution instance...  We map 2MB of it
+ * so there is no map overlap problem for up to 1 MB compressed kernel.
+ * If the execution is in RAM then we would only be duplicating the above.
+ */
+		mov	r1, #0x1e
+		orr	r1, r1, #3 << 10
+		mov	r2, pc
+		mov	r2, r2, lsr #20
+		orr	r1, r1, r2, lsl #20
+		add	r0, r3, r2, lsl #2
+		str	r1, [r0], #4
+		add	r1, r1, #1048576
+		str	r1, [r0]
+		mov	pc, lr
+ENDPROC(__setup_mmu)
+#else
 __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		bic	r3, r3, #0xff		@ Align the pointer
 		bic	r3, r3, #0x3f00
@@ -703,6 +774,7 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		add	r1, r1, #1048576
 		teq	r0, r2
 		bne	1b
+
 /*
  * If ever we are running from Flash, then we surely want the cache
  * to be enabled also for our execution instance...  We map 2MB of it
@@ -720,6 +792,7 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		str	r1, [r0]
 		mov	pc, lr
 ENDPROC(__setup_mmu)
+#endif
 
 @ Enable unaligned access on v6, to allow better code generation
 @ for the decompressor C code:
@@ -754,6 +827,38 @@ __armv4_mmu_cache_on:
 #endif
 		mov	pc, r12
 
+#if 1
+__armv7_mmu_cache_on:
+		mov	r12, lr
+#ifdef CONFIG_MMU
+		mrc	p15, 0, r11, c0, c1, 4	@ read ID_MMFR0
+		tst	r11, #0xf		@ VMSA
+		blne	__setup_mmu
+		mov	r0, #0
+		mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
+		tst	r11, #0xf		@ VMSA
+		mcrne	p15, 0, r0, c8, c7, 0	@ flush I,D TLBs
+#endif
+		mrc	p15, 0, r0, c1, c0, 0	@ read control reg
+		bic	r0, r0, #1 << 28	@ clear SCTLR.TRE
+		orr	r0, r0, #0x5000		@ I-cache enable, RR cache replacement
+		orr	r0, r0, #0x003c		@ write buffer
+#ifdef CONFIG_MMU
+#ifdef CONFIG_CPU_ENDIAN_BE8
+		orr	r0, r0, #1 << 25	@ big-endian page tables
+#endif
+		orrne	r0, r0, #1		@ MMU enabled
+		movne	r1, #-1
+		mcrne	p15, 0, r3, c2, c0, 0	@ load page table pointer
+		mcrne	p15, 0, r1, c3, c0, 0	@ load domain access control
+#endif
+		mcr	p15, 0, r0, c7, c5, 4	@ ISB
+		mcr	p15, 0, r0, c1, c0, 0	@ load control register
+		mrc	p15, 0, r0, c1, c0, 0	@ and read it back
+		mov	r0, #0
+		mcr	p15, 0, r0, c7, c5, 4	@ ISB
+		mov	pc, r12
+#else
 __armv7_mmu_cache_on:
 		mov	r12, lr
 #ifdef CONFIG_MMU
@@ -790,6 +895,7 @@ __armv7_mmu_cache_on:
 		mov	r0, #0
 		mcr	p15, 0, r0, c7, c5, 4	@ ISB
 		mov	pc, r12
+#endif
 
 __fa526_cache_on:
 		mov	r12, lr
@@ -1074,6 +1180,7 @@ __armv4_mmu_cache_off:
 #endif
 		mov	pc, lr
 
+#if 1
 __armv7_mmu_cache_off:
 		mrc	p15, 0, r0, c1, c0
 #ifdef CONFIG_MMU
@@ -1092,6 +1199,26 @@ __armv7_mmu_cache_off:
 		mcr	p15, 0, r0, c7, c10, 4	@ DSB
 		mcr	p15, 0, r0, c7, c5, 4	@ ISB
 		mov	pc, r12
+#else
+__armv7_mmu_cache_off:
+		mrc	p15, 0, r0, c1, c0
+#ifdef CONFIG_MMU
+		bic	r0, r0, #0x000d
+#else
+		bic	r0, r0, #0x000c
+#endif
+		mcr	p15, 0, r0, c1, c0	@ turn MMU and cache off
+		mov	r12, lr
+		bl	__armv7_mmu_cache_flush
+		mov	r0, #0
+#ifdef CONFIG_MMU
+		mcr	p15, 0, r0, c8, c7, 0	@ invalidate whole TLB
+#endif
+		mcr	p15, 0, r0, c7, c5, 6	@ invalidate BTC
+		mcr	p15, 0, r0, c7, c10, 4	@ DSB
+		mcr	p15, 0, r0, c7, c5, 4	@ ISB
+		mov	pc, r12
+#endif
 
 /*
  * Clean and flush the cache to maintain consistency.
@@ -1143,6 +1270,67 @@ __armv6_mmu_cache_flush:
 		mcr	p15, 0, r1, c7, c10, 4	@ drain WB
 		mov	pc, lr
 
+#if 1
+__armv7_mmu_cache_flush:
+		mrc	p15, 0, r10, c0, c1, 5	@ read ID_MMFR1
+		tst	r10, #0xf << 16		@ hierarchical cache (ARMv7)
+		mov	r10, #0
+		beq	hierarchical
+		mcr	p15, 0, r10, c7, c14, 0	@ clean+invalidate D
+		b	iflush
+hierarchical:
+		mcr	p15, 0, r10, c7, c10, 5	@ DMB
+		stmfd	sp!, {r0-r7, r9-r11}
+		mrc	p15, 1, r0, c0, c0, 1	@ read clidr
+		ands	r3, r0, #0x7000000	@ extract loc from clidr
+		mov	r3, r3, lsr #23		@ left align loc bit field
+		beq	finished		@ if loc is 0, then no need to clean
+		mov	r10, #0			@ start clean at cache level 0
+loop1:
+		add	r2, r10, r10, lsr #1	@ work out 3x current cache level
+		mov	r1, r0, lsr r2		@ extract cache type bits from clidr
+		and	r1, r1, #7		@ mask of the bits for current cache only
+		cmp	r1, #2			@ see what cache we have at this level
+		blt	skip			@ skip if no cache, or just i-cache
+		mcr	p15, 2, r10, c0, c0, 0	@ select current cache level in cssr
+		mcr	p15, 0, r10, c7, c5, 4	@ isb to sych the new cssr&csidr
+		mrc	p15, 1, r1, c0, c0, 0	@ read the new csidr
+		and	r2, r1, #7		@ extract the length of the cache lines
+		add	r2, r2, #4		@ add 4 (line length offset)
+		ldr	r4, =0x3ff
+		ands	r4, r4, r1, lsr #3	@ find maximum number on the way size
+		clz	r5, r4			@ find bit position of way size increment
+		ldr	r7, =0x7fff
+		ands	r7, r7, r1, lsr #13	@ extract max number of the index size
+loop2:
+		mov	r9, r4			@ create working copy of max way size
+loop3:
+ ARM(		orr	r11, r10, r9, lsl r5	) @ factor way and cache number into r11
+ ARM(		orr	r11, r11, r7, lsl r2	) @ factor index number into r11
+ THUMB(		lsl	r6, r9, r5		)
+ THUMB(		orr	r11, r10, r6		) @ factor way and cache number into r11
+ THUMB(		lsl	r6, r7, r2		)
+ THUMB(		orr	r11, r11, r6		) @ factor index number into r11
+		mcr	p15, 0, r11, c7, c14, 2	@ clean & invalidate by set/way
+		subs	r9, r9, #1		@ decrement the way
+		bge	loop3
+		subs	r7, r7, #1		@ decrement the index
+		bge	loop2
+skip:
+		add	r10, r10, #2		@ increment cache number
+		cmp	r3, r10
+		bgt	loop1
+finished:
+		ldmfd	sp!, {r0-r7, r9-r11}
+		mov	r10, #0			@ swith back to cache level 0
+		mcr	p15, 2, r10, c0, c0, 0	@ select current cache level in cssr
+iflush:
+		mcr	p15, 0, r10, c7, c10, 4	@ DSB
+		mcr	p15, 0, r10, c7, c5, 0	@ invalidate I+BTB
+		mcr	p15, 0, r10, c7, c10, 4	@ DSB
+		mcr	p15, 0, r10, c7, c5, 4	@ ISB
+		mov	pc, lr
+#else
 __armv7_mmu_cache_flush:
 		tst	r4, #1
 		bne	iflush
@@ -1204,6 +1392,7 @@ iflush:
 		mcr	p15, 0, r10, c7, c10, 4	@ DSB
 		mcr	p15, 0, r10, c7, c5, 4	@ ISB
 		mov	pc, lr
+#endif
 
 __armv5tej_mmu_cache_flush:
 		tst	r4, #1
