@@ -522,18 +522,11 @@ static int __init cortina_console_setup(struct console *co, char *options)
 	int parity = 'n';
 	int flow = 'n';
 
-{extern void printascii(const char*); printascii("called cortina_console_setup\n");}
-
 	if (co->index < 0 || co->index >= UART_NR)
-{
-{extern void printascii(const char*); printascii("DDD1b\n");}
 		return -ENODEV;
-}
+
 	if (!cortina_uart_ports[co->index])
-{
-{extern void printascii(const char*); printascii("DDD1c\n");}
 		return -ENODEV;
-}
 
 	port = &cortina_uart_ports[co->index]->uart;
 
@@ -542,8 +535,6 @@ static int __init cortina_console_setup(struct console *co, char *options)
 		uart_parse_options(options, &baud, &parity, &bits, &flow);
 
 	ret = uart_set_options(port, co, baud, parity, bits, flow);
-
-{extern void printascii(const char*); printascii("DDD2\n");}
 
 	return 0;
 }
@@ -560,26 +551,21 @@ static struct console cortina_console = {
 	.data = &cortina_uart_driver,
 };
 
-static int __init cortina_console_init(void)
-{
-{extern void printascii(const char*); printascii("called cortina_console_init\n");}
-	cortina_console.index = 0;
-	register_console(&cortina_console);
-	return 0;
-}
+#endif	/* CONFIG_SERIAL_CS_CORTINA_CONSOLE */
 
-console_initcall(cortina_console_init);
-
-#endif
 
 static struct uart_driver cortina_uart_driver = {
 	.owner = THIS_MODULE,
 	.driver_name = "cortina_uart",
 	.dev_name = "ttyS",
+	.nr = UART_NR,
+#if 0	/* don't set them */
 	.major = TTY_MAJOR,
 	.minor = 64,
-	.nr = UART_NR,
+#endif
+#ifdef CONFIG_SERIAL_CS_CORTINA_CONSOLE
 	.cons = &cortina_console,
+#endif
 };
 
 #ifdef NOT_YET
@@ -652,6 +638,7 @@ static int serial_cortina_probe(struct platform_device *pdev)
 	void __iomem *base;
 	struct clk *clk;
 	struct cortina_uart_port *port;
+	int ltmp;
 	int err;
 
 	port = devm_kzalloc(&pdev->dev,
@@ -686,21 +673,27 @@ static int serial_cortina_probe(struct platform_device *pdev)
 		goto l_unmap;
 	}
 
+	if (!pdev->dev.of_node ||
+			((ltmp = of_alias_get_id(pdev->dev.of_node, "serial")) < 0))
+		ltmp = pdev->id;
+
 	port->clk = clk;
 	port->uart.irq = irq->start;
 	port->uart.membase = base;
 	port->uart.mapbase = mem->start;
 	port->uart.ops = &cortina_uart_ops;
 	port->uart.dev = &pdev->dev;
-	port->uart.line = pdev->id;
+	port->uart.line = ltmp;
 	port->uart.uartclk = clk_get_rate(port->clk);
 	port->uart.type = PORT_CORTINA;
 
-	err = uart_add_one_port(&cortina_uart_driver, &port->uart);
-	if (err)
-		goto l_unmap;
-
 	cortina_uart_ports[port->uart.line] = port;
+
+	err = uart_add_one_port(&cortina_uart_driver, &port->uart);
+	if (err){
+		cortina_uart_ports[port->uart.line] = NULL;
+		goto l_unmap;
+	}
 
 #ifdef NOT_YET
 	cortina_uart_freq_notifier.data = (void *)port;
