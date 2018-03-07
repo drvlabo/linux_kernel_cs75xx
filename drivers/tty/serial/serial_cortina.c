@@ -339,30 +339,30 @@ static int cortina_uart_verify_port(struct uart_port *port,
 
 static int cortina_poll_get_char(struct uart_port *port)
 {
-        unsigned int rx;
+	unsigned int rx;
 
-        while(readl(port->membase + INFO) & INFO_RX_EMPTY)
-                ;
-        rx = readl(port->membase + RX_DAT);
+	while(readl(port->membase + INFO) & INFO_RX_EMPTY)
+		;
+	rx = readl(port->membase + RX_DAT);
 
-        return(rx);
+	return(rx);
 }
 
 static void cortina_poll_put_char(struct uart_port *port, unsigned char c)
 {
 #define wait_tx_done()  while (!(readl(port->membase + INFO) & INFO_TX_EMPTY));
-        unsigned int ie = readl(port->membase + IE);
+	unsigned int ie = readl(port->membase + IE);
 
-        // disable the interrupts
-        writel(0, port->membase + IE);
-        wait_tx_done();
+	// disable the interrupts
+	writel(0, port->membase + IE);
+	wait_tx_done();
 
-        writel(c, port->membase + TX_DAT);
-        wait_tx_done();
+	writel(c, port->membase + TX_DAT);
+	wait_tx_done();
 
-        //enable the interrupt
-        writel(ie, port->membase + IE);
-        return;
+	//enable the interrupt
+	writel(ie, port->membase + IE);
+	return;
 }
 
 #endif
@@ -386,8 +386,8 @@ static struct uart_ops cortina_uart_ops = {
 	.verify_port = cortina_uart_verify_port,
 #if defined(CONFIG_KGDB_SERIAL_CONSOLE) || \
     defined(CONFIG_KGDB_SERIAL_CONSOLE_MODULE)
-        .poll_get_char = cortina_poll_get_char,
-        .poll_put_char = cortina_poll_put_char,
+	.poll_get_char = cortina_poll_get_char,
+	.poll_put_char = cortina_poll_put_char,
 #endif
 };
 
@@ -634,11 +634,12 @@ static cs_pm_freq_notifier_t cortina_uart_freq_notifier = {
 static int serial_cortina_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
-	struct resource *mem, *irq;
+	struct resource *mem;
+	int irq;
 	void __iomem *base;
 	struct clk *clk;
 	struct cortina_uart_port *port;
-	int ltmp;
+	int id;
 	int err;
 
 	port = devm_kzalloc(&pdev->dev,
@@ -646,20 +647,26 @@ static int serial_cortina_probe(struct platform_device *pdev)
 	if (!port)
 		return -ENOMEM;
 
-	snprintf(port->name, sizeof(port->name), "Cortina UART%d", pdev->id);
+	if (!pdev->dev.of_node ||
+			((id = of_alias_get_id(pdev->dev.of_node, "serial")) < 0))
+		id = pdev->id;
+	if (pdev->id < 0)
+		pdev->id = id;
+
+	snprintf(port->name, sizeof(port->name), "Cortina UART%d", id);
 
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	base = devm_ioremap_resource(&pdev->dev, mem);
 	if (IS_ERR(base)) {
-                dev_err(&pdev->dev, "no memory resource\n");
-                return PTR_ERR(base);
-        }
+		dev_err(&pdev->dev, "no memory resource\n");
+		return PTR_ERR(base);
+	}
 
-        irq = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-        if (!irq) {
-                dev_err(&pdev->dev, "no irq resource\n");
-                return -ENODEV;
-        }
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0) {
+		dev_err(&pdev->dev, "no irq resource\n");
+		return -ENODEV;
+	}
 
 	clk = of_clk_get(np, 0);
 	if (!IS_ERR(clk)) {
@@ -673,17 +680,14 @@ static int serial_cortina_probe(struct platform_device *pdev)
 		goto l_unmap;
 	}
 
-	if (!pdev->dev.of_node ||
-			((ltmp = of_alias_get_id(pdev->dev.of_node, "serial")) < 0))
-		ltmp = pdev->id;
-
 	port->clk = clk;
-	port->uart.irq = irq->start;
+	port->uart.irq = irq;
+	port->uart.iotype = UPIO_MEM;
 	port->uart.membase = base;
 	port->uart.mapbase = mem->start;
 	port->uart.ops = &cortina_uart_ops;
 	port->uart.dev = &pdev->dev;
-	port->uart.line = ltmp;
+	port->uart.line = id;
 	port->uart.uartclk = clk_get_rate(port->clk);
 	port->uart.type = PORT_CORTINA;
 
@@ -733,13 +737,13 @@ MODULE_DEVICE_TABLE(of, cortina_serial_of_match);
 #endif
 
 static struct platform_driver serial_cortina_driver = {
-	.probe          = serial_cortina_probe,
-	.remove         = serial_cortina_remove,
-	.driver         = {
+	.probe	  = serial_cortina_probe,
+	.remove	 = serial_cortina_remove,
+	.driver	 = {
 		.name   = "cortina_serial",
 		.owner  = THIS_MODULE,
 		.of_match_table = of_match_ptr(cortina_serial_of_match),
-        },
+	},
 };
 
 static int __init cortina_uart_init(void)
