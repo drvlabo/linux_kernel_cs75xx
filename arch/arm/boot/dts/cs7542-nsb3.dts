@@ -12,7 +12,7 @@
 
 	chosen {
 #if 1
-		bootargs = "console=ttyS0,115200";
+		bootargs = "console=ttyS0,115200 loglevel=8";
 #else
 		bootargs = "console=ttyS0,115200 lpj=7970816";
 #endif
