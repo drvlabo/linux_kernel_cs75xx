@@ -7,6 +7,7 @@
 
 	aliases {
 		serial0 = &uart0;
+		serial1 = &uart1;
 	};
 
 	cpus {
@@ -80,8 +81,19 @@
 #else
 			interrupts = <GIC_SPI 38 4>;
 #endif
-			status = "ok";
 			clocks = <&mainclk CS75XX_CLK_APB>;
+			status = "ok";
+		};
+		uart1: serial@F0070140 {
+			compatible = "cortina,cs75xx-uart";
+			reg = <0xF0070140 0x30>;
+#if 0
+			interrupts = <GIC_SPI 23 4>;
+#else
+			interrupts = <GIC_SPI 39 4>;
+#endif
+			clocks = <&mainclk CS75XX_CLK_APB>;
+			status = "ok";
 		};
 	};
 };
