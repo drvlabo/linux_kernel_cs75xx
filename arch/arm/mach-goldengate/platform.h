@@ -22,9 +22,7 @@
 #ifndef __ASM_ARCH_PLATFORM_H
 #define __ASM_ARCH_PLATFORM_H
 
-#if 0
-#include "irqs-eb.h"
-#endif
+
 #include "registers.h"
 
 /*

@@ -54,8 +54,13 @@
  *		 *					*
  */
 //#define IO_ADDRESS(x)		(((x) & 0x0FFFFFFF) + 0xF0000000)
+#if 1
+#define IO_ADDRESS(x)		(((x) & 0x0FFFFFFF) | 0xF0000000)
+#define	SCU_IO_ADDRESS(x)	((((x) & 0x0F000000) >> 4) | 0xFE000000)
+#else
 #define IO_ADDRESS(x)		( (((x) & 0xF0000000) == 0xF0000000) ? \
 								(x) : (((x)&0xFF000000)>>8 |0xFE000000| ((x)&0x0000FFFF)) )
+#endif
 
 #else
 #define IO_ADDRESS(x)		(x)

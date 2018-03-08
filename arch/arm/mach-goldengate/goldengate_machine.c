@@ -17,18 +17,21 @@
 
 static struct map_desc goldengate_io_desc[] __initdata = {
 
+#if 1
 	{
 	 .virtual = IO_ADDRESS(GOLDENGATE_GLOBAL_BASE),
 	 .pfn = __phys_to_pfn(GOLDENGATE_GLOBAL_BASE),
 	 .length = SZ_8M,
 	 .type = MT_DEVICE,
 	 },
+#endif
 	{
-	 .virtual = IO_ADDRESS(GOLDENGATE_SCU_BASE),
+	 .virtual = SCU_IO_ADDRESS(GOLDENGATE_SCU_BASE),
 	 .pfn = __phys_to_pfn(GOLDENGATE_SCU_BASE),
 	 .length = SZ_8K,
 	 .type = MT_DEVICE,
 	 },
+#if 0
 	{
 	 .virtual = IO_ADDRESS(GOLDENGATE_RTC_BASE),
 	 .pfn = __phys_to_pfn(GOLDENGATE_RTC_BASE),
@@ -103,8 +106,6 @@ static struct map_desc goldengate_io_desc[] __initdata = {
 	 .length = SZ_256K,
 	 .type = MT_DEVICE,
 	 },
-
-#if 0
 #ifdef CONFIG_CS75xx_IPC2RCPU
 	/* Share memory for Re-circulation CPU */
 	{
@@ -114,29 +115,22 @@ static struct map_desc goldengate_io_desc[] __initdata = {
 	 .type = MT_DEVICE,
 	 },
 #endif
-#endif
 	{
 	 .virtual = IO_ADDRESS( GOLDENGATE_OTP_BASE ),
 	 .pfn = __phys_to_pfn( GOLDENGATE_OTP_BASE ),
 	 .length = SZ_1K,
 	 .type = MT_DEVICE,
 	},
+#endif
 };
 
 static void __init gg_map_io(void)
 {
-#if 0
+#if 0	/* this region will be mapped below iotable_init() call */
 	debug_ll_io_init();
 #endif
 	iotable_init(goldengate_io_desc, ARRAY_SIZE(goldengate_io_desc));
 }
-
-#if 0
-static void __init gg_irq_init(void)
-{
-	irqchip_init();
-}
-#endif
 
 
 static const char* const gg_match[] __initconst = {
@@ -146,8 +140,5 @@ static const char* const gg_match[] __initconst = {
 
 DT_MACHINE_START(CS75XX_DT, "Cortina CS75xx (Device Tree)")
 	.map_io		= gg_map_io,
-#if 0
-	.init_irq	= gg_irq_init,
-#endif
 	.dt_compat	= gg_match,
 MACHINE_END

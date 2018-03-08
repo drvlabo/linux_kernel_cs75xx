@@ -1,17 +1,18 @@
 
-#if 0
-#define IO_ADDRESS(x)		( (((x) & 0xF0000000) == 0xF0000000) ? \
-					(x) : (((x)&0xFF000000)>>8 |0xFE000000| ((x)&0x0000FFFF)) )
+#if 1
+#define IO_ADDRESS(x)		(((x) & 0x0FFFFFFF) | 0xF0000000)
+#else
+#define IO_ADDRESS(x)		(x)
 #endif
 
 
 
 
 #define	UART0_PHYS	(0xf0070110)
-#define	UART0_VIRT	(0xf0070110)
+#define	UART0_VIRT	IO_ADDRESS(UART0_PHYS)
 
 #define	UART1_PHYS	(0xf0070140)
-#define	UART1_VIRT	(0xf0070140)
+#define	UART1_VIRT	IO_ADDRESS(UART1_PHYS)
 
 #define	LL_UART_PADDR	UART0_PHYS
 #define	LL_UART_VADDR	UART0_VIRT
