@@ -152,7 +152,12 @@ static const char* const gg_match[] __initconst = {
 	NULL,
 };
 
+#ifdef CONFIG_SMP
+extern const struct smp_operations	gg_smp_ops;
+#endif
+
 DT_MACHINE_START(CS75XX_DT, "Cortina CS75xx (Device Tree)")
+	.smp		= smp_ops(gg_smp_ops),
 	.map_io		= gg_map_io,
 	.dt_compat	= gg_match,
 MACHINE_END
