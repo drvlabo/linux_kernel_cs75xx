@@ -59,11 +59,7 @@
 
 #define CONFIG_SERIAL_CS_CORTINA_CONSOLE
 
-#ifdef CONFIG_CORTINA_ENGINEERING
-#define UART_NR 4
-#else
 #define UART_NR 2
-#endif
 
 struct cortina_uart_port {
 	struct uart_port	uart;
