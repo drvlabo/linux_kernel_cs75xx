@@ -17,8 +17,6 @@
  AR_CLASS(	.arch	armv7-a	)
  M_CLASS(	.arch	armv7-m	)
 
-#define DEBUG
-
 /*
  * Debugging stuff
  *
@@ -208,13 +206,6 @@ not_angel:
 		ldr	r4, =zreladdr
 #endif
 
-#if 0
-		kputc	#'@'
-		kputc	#'@'
-		kphex	r4,8
-		kputc	#'\n'
-#endif
-
 		/*
 		 * Set up a page table only if it won't overwrite ourself.
 		 * That means r4 < pc || r4 - 16k page directory > &_end.
@@ -228,12 +219,6 @@ not_angel:
 		cmpcc	r4, r0
 		orrcc	r4, r4, #1		@ remember we skipped cache_on
 		blcs	cache_on
-
-#if 0
-		kputc	#'@'
-		kputc	#'2'
-		kputc	#'\n'
-#endif
 
 restart:	adr	r0, LC0
 		ldmia	r0, {r1, r2, r3, r6, r10, r11, r12}
@@ -554,12 +539,6 @@ not_relocated:	mov	r0, #0
  *   r7  = architecture ID
  *   r8  = atags pointer
  */
-#if 0
-		kputc	#'*'
-		kputc	#'*'
-		kphex	r7, 8
-		kputc	#'\n'
-#endif
 		mov	r0, r4
 		mov	r1, sp			@ malloc space above stack
 		add	r2, sp, #0x10000	@ 64k max
@@ -567,11 +546,6 @@ not_relocated:	mov	r0, #0
 		bl	decompress_kernel
 		bl	cache_clean_flush
 		bl	cache_off
-#if 0
-		kputc	#'@'
-		kputc	#'4'
-		kputc	#'\n'
-#endif
 		mov	r1, r7			@ restore architecture number
 		mov	r2, r8			@ restore atags pointer
 
@@ -774,7 +748,6 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		add	r1, r1, #1048576
 		teq	r0, r2
 		bne	1b
-
 /*
  * If ever we are running from Flash, then we surely want the cache
  * to be enabled also for our execution instance...  We map 2MB of it
