@@ -13,6 +13,49 @@
 #include "platform.h"
 
 
+
+static void gg_restart(enum reboot_mode mode, const char *cmd)
+{
+	/*
+	 * To reset, use watchdog to reset whole system
+	 */
+	unsigned int reg_v;
+
+	reg_v = __raw_readl((void __iomem*)IO_ADDRESS(GLOBAL_GLOBAL_CONFIG));
+
+	/* enable axi & L2 reset */
+	reg_v &= ~0x00000300;
+
+	/* wd*_enable are exclusive with wd0_reset_subsys_enable */
+	reg_v &= ~0x0000000E;
+
+	/* reset remap, all block & subsystem */
+	reg_v |= 0x000000F0;
+	__raw_writel(reg_v, (void __iomem*)IO_ADDRESS(GLOBAL_GLOBAL_CONFIG));
+
+#if 0
+	/* Stall RCPU0/1, stall and clocken */
+	__raw_writel(0x129, (void __iomem*)IO_ADDRESS(GLOBAL_RECIRC_CPU_CTL));
+#endif
+
+	/* Reset external device */
+	reg_v = __raw_readl((void __iomem*)IO_ADDRESS(GLOBAL_SCRATCH));
+	reg_v |= 0x400;
+	__raw_writel(reg_v, (void __iomem*)IO_ADDRESS(GLOBAL_SCRATCH));
+
+	//mdelay(10);
+
+	reg_v &= ~0x400;
+	__raw_writel(reg_v, (void __iomem*)IO_ADDRESS(GLOBAL_SCRATCH));
+
+	/* Fire */
+	__raw_writel(0, (void __iomem*)IO_ADDRESS(GOLDENGATE_TWD_BASE + 0x28)); /* Disable WD */
+	__raw_writel(10, (void __iomem*)IO_ADDRESS(GOLDENGATE_TWD_BASE + 0x20)); /* LOAD */
+
+	/* Enable watchdog - prescale=256, watchdog mode=1, enable=1 */
+	__raw_writel(0x0000FF09, (void __iomem*)IO_ADDRESS(GOLDENGATE_TWD_BASE + 0x28)); /* Enable WD */
+}
+
 static struct map_desc goldengate_io_desc[] __initdata = {
 
 	/*
@@ -159,5 +202,6 @@ extern const struct smp_operations	gg_smp_ops;
 DT_MACHINE_START(CS75XX_DT, "Cortina CS75xx (Device Tree)")
 	.smp		= smp_ops(gg_smp_ops),
 	.map_io		= gg_map_io,
+	.restart	= gg_restart,
 	.dt_compat	= gg_match,
 MACHINE_END
