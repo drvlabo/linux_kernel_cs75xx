@@ -1153,7 +1153,6 @@ __armv4_mmu_cache_off:
 #endif
 		mov	pc, lr
 
-#if 1
 __armv7_mmu_cache_off:
 		mrc	p15, 0, r0, c1, c0
 #ifdef CONFIG_MMU
@@ -1172,26 +1171,6 @@ __armv7_mmu_cache_off:
 		mcr	p15, 0, r0, c7, c10, 4	@ DSB
 		mcr	p15, 0, r0, c7, c5, 4	@ ISB
 		mov	pc, r12
-#else
-__armv7_mmu_cache_off:
-		mrc	p15, 0, r0, c1, c0
-#ifdef CONFIG_MMU
-		bic	r0, r0, #0x000d
-#else
-		bic	r0, r0, #0x000c
-#endif
-		mcr	p15, 0, r0, c1, c0	@ turn MMU and cache off
-		mov	r12, lr
-		bl	__armv7_mmu_cache_flush
-		mov	r0, #0
-#ifdef CONFIG_MMU
-		mcr	p15, 0, r0, c8, c7, 0	@ invalidate whole TLB
-#endif
-		mcr	p15, 0, r0, c7, c5, 6	@ invalidate BTC
-		mcr	p15, 0, r0, c7, c10, 4	@ DSB
-		mcr	p15, 0, r0, c7, c5, 4	@ ISB
-		mov	pc, r12
-#endif
 
 /*
  * Clean and flush the cache to maintain consistency.
