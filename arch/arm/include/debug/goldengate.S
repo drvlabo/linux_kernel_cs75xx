@@ -1,9 +1,7 @@
 
-#if 1
-#define IO_ADDRESS(x)		(((x) & 0x0FFFFFFF) | 0xF0000000)
-#else
-#define IO_ADDRESS(x)		(x)
-#endif
+	
+/* must be same as arch/arm/mach-goldengate/hardware.h */
+#define IO_ADDRESS(x)		((x) + 0x07000000)
 
 
 

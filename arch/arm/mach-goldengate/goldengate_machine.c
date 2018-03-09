@@ -13,29 +13,23 @@
 #include "platform.h"
 
 
-
-
 static struct map_desc goldengate_io_desc[] __initdata = {
 
-#if 1
+	/*
+	 * include various SoC periphels
+	 *	UART, GPIO, Ethernet, SPI, I2C, ...
+	 */
 	{
 	 .virtual = IO_ADDRESS(GOLDENGATE_GLOBAL_BASE),
 	 .pfn = __phys_to_pfn(GOLDENGATE_GLOBAL_BASE),
 	 .length = SZ_8M,
 	 .type = MT_DEVICE,
 	 },
-#endif
+
 	{
-	 .virtual = SCU_IO_ADDRESS(GOLDENGATE_SCU_BASE),
+	 .virtual = IO_ADDRESS(GOLDENGATE_SCU_BASE),
 	 .pfn = __phys_to_pfn(GOLDENGATE_SCU_BASE),
 	 .length = SZ_8K,
-	 .type = MT_DEVICE,
-	 },
-#if 0
-	{
-	 .virtual = IO_ADDRESS(GOLDENGATE_RTC_BASE),
-	 .pfn = __phys_to_pfn(GOLDENGATE_RTC_BASE),
-	 .length = SZ_4K,
 	 .type = MT_DEVICE,
 	 },
 	{
@@ -44,12 +38,32 @@ static struct map_desc goldengate_io_desc[] __initdata = {
 	 .length = SZ_8K,
 	 .type = MT_DEVICE,
 	 },
+
+#if 1
+	/*
+	 * USB, SDC, AHCI, LCDC, RTC, CIR, POWERC, SPDIF
+	 */
+	{
+	 .virtual = IO_ADDRESS(GOLDENGATE_EHCI_BASE),
+	 .pfn = __phys_to_pfn(GOLDENGATE_EHCI_BASE),
+	 .length = SZ_16M,
+	 .type = MT_DEVICE,
+	 },
+#else
+	{
+	 .virtual = IO_ADDRESS(GOLDENGATE_RTC_BASE),
+	 .pfn = __phys_to_pfn(GOLDENGATE_RTC_BASE),
+	 .length = SZ_4K,
+	 .type = MT_DEVICE,
+	 },
 	{
          .virtual = IO_ADDRESS(GOLDENGATE_AHCI_BASE),
          .pfn = __phys_to_pfn(GOLDENGATE_AHCI_BASE),
          .length = SZ_4K,
          .type = MT_DEVICE,
          },
+#endif
+#if 0
 	/* RCPU I/DRAM  */
 	{
 	 .virtual = IO_ADDRESS(GOLDENGATE_RCPU_DRAM0_BASE),

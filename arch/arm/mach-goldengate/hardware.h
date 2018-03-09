@@ -39,32 +39,26 @@
 
 /* macro to get at IO space when running virtually */
 #ifdef CONFIG_MMU
-/* IO address scatter over several area, it's not good for SW mapping
- * Statically mapped addresses:
+/*
+ * 0xFnnn_nnnn
+ *   add +0x0700_0000
+ *		0xF0xx_xxxx -> 0xF7xx_xxxx
+ *		0xF1xx_xxxx -> 0xF8xx_xxxx
+ *		...
+ *		0xF8xx_xxxx -> 0xFFxx_xxxx
  *
- * F0xx xxxx -> f0xx xxxx
- *		 *					*
- * FDxx xxxx -> fdxx xxxx
- *
- *
- * 1xxx xxxx -> fe1x xxxx		// Can't over 64KB map
- * 2xxx xxxx -> fe2x xxxx		// Can't over 64KB map
- * 3xxx xxxx -> fe3x xxxx		// Can't over 64KB map
- *		 *					*
- *		 *					*
+ * 0xNnnn_nnnn (N = 0x0..0xE)
+ *   mapped size limit = 64Kbytes
+ *		0x0000_xxxx -> 0xF600_xxxx
+ *		0x1000_xxxx -> 0xF100_xxxx
+ *		...
+ *		0xE000_xxxx -> 0xF6E0_xxxx
  */
-//#define IO_ADDRESS(x)		(((x) & 0x0FFFFFFF) + 0xF0000000)
-#if 1
-#define IO_ADDRESS(x)		(((x) & 0x0FFFFFFF) | 0xF0000000)
-#define	SCU_IO_ADDRESS(x)	((((x) & 0x0F000000) >> 4) | 0xFE000000)
-#else
-#define IO_ADDRESS(x)		( (((x) & 0xF0000000) == 0xF0000000) ? \
-								(x) : (((x)&0xFF000000)>>8 |0xFE000000| ((x)&0x0000FFFF)) )
-#endif
-
+#define IO_ADDRESS(x)		(((x) & 0xF0000000) ? \
+					((x) + 0x07000000) : \
+					(0xF6000000 | (((x) & 0xF0000000) >> 8) | ((x) & 0x0000FFFF)))
 #else
 #define IO_ADDRESS(x)		(x)
 #endif
-#define __io_address(n)		__io(IO_ADDRESS(n))
 
 #endif
