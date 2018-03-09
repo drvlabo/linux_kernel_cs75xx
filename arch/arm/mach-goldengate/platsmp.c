@@ -31,13 +31,6 @@
 
 extern void goldengate_secondary_startup(void);
 
-#if 0
-/*
- * control for which core is the next to come out of the secondary
- * boot "holding pen"
- */
-volatile int pen_release = -1;
-#endif
 
 static void __iomem *scu_base_addr(void)
 {
@@ -58,23 +51,12 @@ static void gg_secondary_init(unsigned int cpu)
 {
 	trace_hardirqs_off();
 
-#if 0
-	/*
-	 * if any interrupts are already enabled for the primary
-	 * core (e.g. timer irq), then they will not have been enabled
-	 * for us: do so
-	 */
-	gic_secondary_init(0);
-#endif
-
-#if 1
 	/*
 	 * let the primary processor know we're out of the
 	 * pen, then head off into the C entry point
 	 */
 	pen_release = -1;
 	smp_wmb();
-#endif
 
 	/*
 	 * Synchronise with the boot thread.
@@ -93,7 +75,6 @@ static int gg_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	 */
 	spin_lock(&boot_lock);
 
-#if 1
 	/*
 	 * The secondary processor is waiting to be released from
 	 * the holding pen - release it, then wait for it to flag
@@ -104,25 +85,14 @@ static int gg_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	 */
 	pen_release = cpu;
 	flush_cache_all();
-#endif
 
-#if 1
-	arch_send_wakeup_ipi_mask(cpumask_of(cpu));
-#else
 	/*
-	 * XXX
-	 *
-	 * This is a later addition to the booting protocol: the
-	 * bootMonitor now puts secondary cores into WFI, so
-	 * poke_milo() no longer gets the cores moving; we need
-	 * to send a soft interrupt to wake the secondary core.
-	 * Use smp_cross_call() for this, since there's little
-	 * point duplicating the code here
+	 * Send the secondary CPU a soft interrupt, thereby causing
+	 * the boot monitor to read the system wide flags register,
+	 * and branch to the address found there.
 	 */
-	smp_cross_call(cpumask_of(cpu));
-#endif
+	arch_send_wakeup_ipi_mask(cpumask_of(cpu));
 
-#if 1
 	timeout = jiffies + (1 * HZ);
 	while (time_before(jiffies, timeout)) {
 		smp_rmb();
@@ -131,7 +101,6 @@ static int gg_boot_secondary(unsigned int cpu, struct task_struct *idle)
 
 		udelay(10);
 	}
-#endif
 
 #if 0
 	/* Clear RRAM1 after 2nd core up. Bug#38901 */
@@ -145,21 +114,15 @@ static int gg_boot_secondary(unsigned int cpu, struct task_struct *idle)
 	 */
 	spin_unlock(&boot_lock);
 
-#if 0
-	return 0;
-#else
 	return pen_release != -1 ? -ENOSYS : 0;
-#endif
 }
 
 static void __init poke_milo(void)
 {
 	void __iomem *reg;
 
-#if 1
 	/* nobody is to be released from the pen yet */
 	pen_release = -1;
-#endif
 
 	/*
 	 * Write the address of secondary startup into the system-wide flags
@@ -190,10 +153,6 @@ static void __init gg_smp_init_cpus(void)
 
 	for (i = 0; i < ncores; i++)
 		set_cpu_possible(i, true);
-
-#if 0
-	set_smp_cross_call(gic_raise_softirq);
-#endif
 }
 
 static void __init gg_smp_prepare_cpus(unsigned int max_cpus)
