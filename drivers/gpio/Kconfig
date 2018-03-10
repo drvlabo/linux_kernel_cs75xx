@@ -531,6 +531,12 @@ config GPIO_LOONGSON1
 	help
 	  Say Y or M here to support GPIO on Loongson1 SoCs.
 
+config GPIO_CS75XX
+	bool "Cortina CS75xx GPIO support"
+	depends on ARCH_GOLDENGATE
+	help
+	  Say Y here to support Cortina CS75xx GPIO.
+
 endmenu
 
 menu "Port-mapped I/O GPIO drivers"
