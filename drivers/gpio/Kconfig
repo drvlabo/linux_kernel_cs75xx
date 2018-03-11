@@ -534,6 +534,8 @@ config GPIO_LOONGSON1
 config GPIO_CS75XX
 	bool "Cortina CS75xx GPIO support"
 	depends on ARCH_GOLDENGATE
+	depends on OF_GPIO
+	select GPIOLIB_IRQCHIP
 	help
 	  Say Y here to support Cortina CS75xx GPIO.
 

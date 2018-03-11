@@ -1,413 +1,168 @@
-/*
- * FILE NAME cs75xx_gpio.c
- *
- * BRIEF MODULE DESCRIPTION
- *  Driver for Cortina CS75XY GPIO.
- *
- *  Copyright 2010 Cortina , Corp.
- *
- *  This program is free software; you can redistribute  it and/or modify it
- *  under  the terms of  the GNU General  Public License as published by the
- *  Free Software Foundation;  either version 2 of the  License, or (at your
- *  option) any later version.
- */
-
-#include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/io.h>
-#include <linux/irq.h>
-#include <linux/gpio.h>
+#include <linux/err.h>
 #include <linux/module.h>
+#include <linux/interrupt.h>
+#include <linux/irq.h>
+#include <linux/irqdomain.h>
+#include <linux/gpio.h>
+#include <linux/io.h>
+#include <linux/of.h>
+#include <linux/of_irq.h>
+#include <linux/of_device.h>
 #include <linux/platform_device.h>
 
-/* GLOBAL Register Map */
-#define CS75XX_GPIO_MUX_0		0x1C
-#define CS75XX_GPIO_MUX_1		0x20
-#define CS75XX_GPIO_MUX_2		0x24
-#define CS75XX_GPIO_MUX_3		0x28
-#define CS75XX_GPIO_MUX_4		0x2C
 
-/* GPIO Register Map */
-#define CS75XX_GPIO_CFG			0x00
-#define CS75XX_GPIO_OUT			0x04
-#define CS75XX_GPIO_IN			0x08
-#define CS75XX_GPIO_LVL			0x0C
-#define CS75XX_GPIO_EDGE		0x10
-#define CS75XX_GPIO_IE			0x14
-#define CS75XX_GPIO_INT			0x18
-#define CS75XX_GPIO_STAT		0x1C
-
-/* CS75XX_GPIO_CFG BIT */
-#define GPIO_CFG_OUT			0
-#define GPIO_CFG_IN			1
+#define	DRV_NAME	"cs75xx-gpio"
 
 
-#define	GPIO_BANK_NUM	(5)
-#define	GPIO_BANK_SIZE	(32)
+#define	GPIO_PIN_NUM	(32)
 
 
-static int cs75xx_gpio_debug = 1;
-#define gpio_dbgmsg(fmt...) if (cs75xx_gpio_debug >= 1) printk(fmt)
-
-static void __iomem *cs75xx_gpio_base[GPIO_BANK_NUM];
-static u32 cs75xx_irq_gpio[GPIO_BANK_NUM];
-static u32 cs75xx_gpio_pin[GPIO_BANK_NUM];
-static void __iomem *cs75xx_global_base;
-
-static void _set_gpio_irqenable(void __iomem *base, unsigned int index,
-				int enable)
-{
-	unsigned int reg;
-
-	reg = __raw_readl(base + CS75XX_GPIO_IE);
-	reg = (reg & (~(1 << index))) | (!!enable << index);
-	__raw_writel(reg, base + CS75XX_GPIO_IE);
-}
-
-static void cs75xx_gpio_ack_irq(struct irq_data *irqd)
-{
-	unsigned irq = irqd->irq;
-	unsigned int gpio = irq_to_gpio(irq);
-	void __iomem *base = cs75xx_gpio_base[gpio / GPIO_BANK_SIZE];
-
-	__raw_writel(1 << (gpio % GPIO_BANK_SIZE), base + CS75XX_GPIO_INT);
-}
-
-static void cs75xx_gpio_mask_irq(struct irq_data *irqd)
-{
-	unsigned irq = irqd->irq;
-	unsigned int gpio = irq_to_gpio(irq);
-	void __iomem *base = cs75xx_gpio_base[gpio / GPIO_BANK_SIZE];
-
-	_set_gpio_irqenable(base, gpio % GPIO_BANK_SIZE, 0);
-}
-
-static void cs75xx_gpio_unmask_irq(struct irq_data *irqd)
-{
-	unsigned irq = irqd->irq;
-	unsigned int gpio = irq_to_gpio(irq);
-	void __iomem *base = cs75xx_gpio_base[gpio / GPIO_BANK_SIZE];
-
-	cs75xx_gpio_ack_irq(irqd);
-	_set_gpio_irqenable(base, gpio % GPIO_BANK_SIZE, 1);
-}
-
-static int cs75xx_gpio_set_irq_type(struct irq_data *irqd, unsigned int type)
-{
-	unsigned irq = irqd->irq;
-	unsigned int gpio = irq_to_gpio(irq);
-	unsigned int gpio_mask = 1 << (gpio % GPIO_BANK_SIZE);
-	void __iomem *base = cs75xx_gpio_base[gpio / GPIO_BANK_SIZE];
-	unsigned int reg_level, reg_edge;
-
-	reg_level = __raw_readl(base + CS75XX_GPIO_LVL);
-	reg_edge = __raw_readl(base + CS75XX_GPIO_EDGE);
-
-	switch (type) {
-	case IRQ_TYPE_LEVEL_LOW:
-		reg_level &= ~gpio_mask;
-		reg_edge &= ~gpio_mask;
-		break;
-	case IRQ_TYPE_LEVEL_HIGH:
-		reg_level |= gpio_mask;
-		reg_edge &= ~gpio_mask;
-		break;
-	case IRQ_TYPE_EDGE_FALLING:
-		reg_level &= ~gpio_mask;
-		reg_edge |= gpio_mask;
-		break;
-	case IRQ_TYPE_EDGE_RISING:
-		reg_level |= gpio_mask;
-		reg_edge |= gpio_mask;
-		break;
-	case IRQ_TYPE_EDGE_BOTH:
-		default:
-	return -EINVAL;
-	}
-
-	__raw_writel(reg_level, base + CS75XX_GPIO_LVL);
-	__raw_writel(reg_edge, base + CS75XX_GPIO_EDGE);
-
-	return 0;
-}
-
-#ifdef CONFIG_PM
-static int cs75xx_gpio_set_irq_wake(struct irq_data *irqd, unsigned int on)
-{
-	unsigned irq = irqd->irq;
-	unsigned int gpio = irq_to_gpio(irq);
-	void __iomem *base;
-
-	if (gpio >= (GPIO_BANK_NUM * GPIO_BANK_SIZE))
-		return -EINVAL;
-
-	base = cs75xx_gpio_base[gpio / GPIO_BANK_SIZE];
-
-	if (on)	/* enter PM, GPIO irq will be disabled */
-		_set_gpio_irqenable(base, gpio % GPIO_BANK_SIZE, 1);
-
-	return 0;
-}
+#define	OFFS_CFG	(0x00)
+#define	OFFS_OUT	(0x04)
+#define	OFFS_IN		(0x08)
+#define	OFFS_LVL	(0x0C)
+#define	OFFS_EDGE	(0x10)
+#define	OFFS_IE		(0x14)
+#define	OFFS_INT	(0x18)
+#if 0
+#define	OFFS_STAT	(0x1C)
 #endif
 
-static void cs75xx_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
+
+struct cs75xx_gpio {
+	struct gpio_chip	gpio_chip;
+	void __iomem		*reg_base;
+	void __iomem		*mux_reg;
+	int			irq;
+	int			id;
+};
+
+
+static irqreturn_t cs75xx_gpio_irq_handler(int irq, void *data)
 {
-	unsigned int gpio_irq_no, irq_stat;
-	unsigned int port = (unsigned int)irq_get_handler_data(irq);
+	struct cs75xx_gpio *priv = data;
 
-	irq_stat = __raw_readl(cs75xx_gpio_base[port] + CS75XX_GPIO_INT);
-	irq_stat &= __raw_readl(cs75xx_gpio_base[port] + CS75XX_GPIO_IE);
-
-	gpio_irq_no = GPIO_IRQ_BASE + port * GPIO_BANK_SIZE;
-	for (; irq_stat != 0; irq_stat >>= 1, gpio_irq_no++) {
-
-		if ((irq_stat & 1) == 0)
-			continue;
-
-		BUG_ON(!(irq_desc[gpio_irq_no].handle_irq));
-		irq_desc[gpio_irq_no].handle_irq(gpio_irq_no,
-				&irq_desc[gpio_irq_no]);
-	}
+	return IRQ_HANDLED;
 }
 
-static struct irq_chip cs75xx_gpio_irq_chip = {
-	.name = CS75XX_GPIO_CTLR_NAME,
-	.irq_ack = cs75xx_gpio_ack_irq,
-	.irq_mask = cs75xx_gpio_mask_irq,
-	.irq_unmask = cs75xx_gpio_unmask_irq,
-	.irq_set_type = cs75xx_gpio_set_irq_type,
-#ifdef CONFIG_PM
-	.irq_set_wake = cs75xx_gpio_set_irq_wake,
+static struct irq_chip cs75xx_gpio_irqchip = {
+	.name	= DRV_NAME,
+#ifdef NOT_YET
+	.irq_mask	= NULL,
+	.irq_unmask	= NULL,
+	.irq_set_type	= NULL,
+	.irq_set_wake	= NULL,
+	.flags		= 0,
 #endif
 };
 
-static int cs75xx_gpio_request(struct gpio_chip *chip, unsigned offset)
+static int cs75xx_gpio_probe(struct platform_device *pdev)
 {
-	unsigned int gpio_mux;
+	struct cs75xx_gpio *priv;
+	struct gpio_chip *gpio_chip;
+	struct resource *rp;
+	void __iomem* reg;
+	int irq;
+	int id;
+	int res;
 
-	gpio_mux = __raw_readl(cs75xx_global_base + CS75XX_GPIO_MUX_0 +
-	                                  (offset / GPIO_BANK_SIZE) * 4);
-	gpio_mux |= BIT(offset % GPIO_BANK_SIZE);
-	__raw_writel(gpio_mux, cs75xx_global_base + CS75XX_GPIO_MUX_0 +
-	                                  (offset / GPIO_BANK_SIZE) * 4);
+	id = of_alias_get_id(pdev->dev.of_node, "gpio");
+	if (id < 0) {
+		dev_err(&pdev->dev, "Couldn't get OF id\n");
+		return id;
+	}
+
+	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
+	if (priv == NULL)
+		return -ENOMEM;
+
+	platform_set_drvdata(pdev, priv);
+
+	priv->id = id;
+
+	rp = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	reg = devm_ioremap_resource(&pdev->dev, rp);
+	if (IS_ERR(reg)) {
+		dev_err(&pdev->dev, "could not get GPIO register space.\n");
+		return PTR_ERR(reg);
+	}
+	priv->reg_base = reg;
+
+	rp = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	reg = devm_ioremap_resource(&pdev->dev, rp);
+	if (IS_ERR(reg)) {
+		dev_err(&pdev->dev, "could not get MUX register space.\n");
+		return PTR_ERR(reg);
+	}
+	priv->mux_reg = reg;
+
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0) {
+		dev_err(&pdev->dev, "invalid IRQ\n");
+		return irq;
+	}
+	priv->irq = irq;
+
+printk("%s:%d: exit\n", __func__, __LINE__);
+return -ENOMEM;
+
+	gpio_chip = &priv->gpio_chip;
+	gpio_chip->label	= dev_name(&pdev->dev);
+	gpio_chip->owner	= THIS_MODULE;
+	gpio_chip->parent	= &pdev->dev;
+#ifdef NOT_YET
+	gpio_chip->request		= NULL;
+	gpio_chip->free			= NULL;
+	gpio_chip->set			= NULL;
+	gpio_chip->get			= NULL;
+	gpio_chip->direction_input	= NULL;
+	gpio_chip->direction_output	= NULL;
+#endif
+	gpio_chip->base		= -1;
+	gpio_chip->ngpio	= GPIO_PIN_NUM;
+
+	res = gpiochip_add_data(gpio_chip, priv);
+	if (res) {
+		dev_err(&pdev->dev, "failed to add gpiochip.\n");
+		return res;
+	}
+
+	/* disable all interrupts */
+	writel(0x00000000UL, priv->reg_base + OFFS_IE);
+
+	res = gpiochip_irqchip_add(gpio_chip, &cs75xx_gpio_irqchip, 0,
+					handle_bad_irq, IRQ_TYPE_NONE);
+	if (res) {
+		dev_err(&pdev->dev, "failed to add irqchip.\n");
+		return res;
+	}
+
+	gpiochip_set_chained_irqchip(gpio_chip, &cs75xx_gpio_irqchip, priv->irq, NULL);
+
+printk("%s:%d: exit\n", __func__, __LINE__);
+return -ENOMEM;
+
+	res = devm_request_irq(&pdev->dev, priv->irq, cs75xx_gpio_irq_handler,
+			0, dev_name(&pdev->dev), priv);
+	if (res) {
+		dev_err(&pdev->dev, "failed to request_irq.\n");
+		return res;
+	}
 
 	return 0;
 }
 
-void cs75xx_gpio_free(struct gpio_chip *chip, unsigned offset)
-{
-	unsigned int gpio_mux;
-
-	gpio_mux = __raw_readl(cs75xx_global_base + CS75XX_GPIO_MUX_0 +
-	                                  (offset / GPIO_BANK_SIZE) * 4);
-	gpio_mux &= ~BIT(offset % GPIO_BANK_SIZE);
-	__raw_writel(gpio_mux, cs75xx_global_base + CS75XX_GPIO_MUX_0 +
-	                                  (offset / GPIO_BANK_SIZE) * 4);
-
-	return 0;
-}
-
-static void _set_gpio_direction(struct gpio_chip *chip, unsigned offset,
-				int dir)
-{
-	void __iomem *base = cs75xx_gpio_base[offset / GPIO_BANK_SIZE];
-	unsigned int reg;
-
-	reg = __raw_readl(base + CS75XX_GPIO_CFG);
-	if (dir)
-		reg |= 1 << (offset % GPIO_BANK_SIZE);
-	else
-		reg &= ~(1 << (offset % GPIO_BANK_SIZE));
-	__raw_writel(reg, base + CS75XX_GPIO_CFG);
-}
-
-static void cs75xx_gpio_set(struct gpio_chip *chip, unsigned offset, int value)
-{
-	void __iomem *base = cs75xx_gpio_base[offset / GPIO_BANK_SIZE];
-	unsigned int reg;
-
-	reg = __raw_readl(base + CS75XX_GPIO_OUT);
-	if (value)
-		reg |= 1 << (offset % GPIO_BANK_SIZE);
-	else
-		reg &= ~(1 << (offset % GPIO_BANK_SIZE));
-	__raw_writel(reg, base + CS75XX_GPIO_OUT);
-}
-
-static int cs75xx_gpio_get(struct gpio_chip *chip, unsigned offset)
-{
-	void __iomem *base = cs75xx_gpio_base[offset / GPIO_BANK_SIZE];
-
-	return (__raw_readl(base + CS75XX_GPIO_IN) >> (offset % GPIO_BANK_SIZE)) & 1;
-}
-
-static int cs75xx_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
-{
-	_set_gpio_direction(chip, offset, GPIO_CFG_IN);
-	return 0;
-}
-
-static int cs75xx_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
-					int value)
-{
-	_set_gpio_direction(chip, offset, GPIO_CFG_OUT);
-	cs75xx_gpio_set(chip, offset, value);
-	return 0;
-}
-
-static struct gpio_chip cs75xx_gpio_chip = {
-	.label			= CS75XX_GPIO_CTLR_NAME,
-	.request		= cs75xx_gpio_request,
-	.free			= cs75xx_gpio_free,
-	.direction_input	= cs75xx_gpio_direction_input,
-	.get			= cs75xx_gpio_get,
-	.direction_output	= cs75xx_gpio_direction_output,
-	.set			= cs75xx_gpio_set,
-	.base			= 0,
-	.ngpio			= GPIO_BANK_NUM * GPIO_BANK_SIZE,
+static const struct of_device_id cs75xx_gpio_of_match[] = {
+	{ .compatible = "cortina,cs75xx-gpio" },
+	{},
 };
 
-static int __devinit cs75xx_gpio_probe(struct platform_device *pdev)
-{
-	int i, j;
-	char tmp_str[16];
-	struct resource *res_mem;
-
-	gpio_dbgmsg("Function: %s, pdev->name = %s\n", __func__, pdev->name);
-
-	memset(cs75xx_gpio_base, 0, sizeof(cs75xx_gpio_base));
-
-	/* get the module base address and irq number */
-	sprintf(tmp_str, "global");
-	res_mem = platform_get_resource_byname(pdev, IORESOURCE_IO, tmp_str);
-	if (!res_mem) {
-		gpio_dbgmsg("Func: %s - can't get resource %s\n", __func__, tmp_str);
-		goto fail;
-	}
-	cs75xx_global_base = ioremap(res_mem->start, res_mem->end - res_mem->start + 1);
-	if (!cs75xx_global_base) {
-		gpio_dbgmsg("Func: %s - unable to remap %s %d memory \n",
-		            __func__, tmp_str, res_mem->end - res_mem->start + 1);
-		goto fail;
-	}
-	gpio_dbgmsg("\tcs75xx_global_base = %p\n", cs75xx_global_base);
-
-	for (i = 0; i < GPIO_BANK_NUM; i++) {
-		sprintf(tmp_str, "gpio%d", i);
-		res_mem = platform_get_resource_byname(pdev, IORESOURCE_IO, tmp_str);
-		if (!res_mem) {
-			gpio_dbgmsg("Func: %s - can't get resource %s\n", __func__, tmp_str);
-			goto fail;
-		}
-		cs75xx_gpio_base[i] = ioremap(res_mem->start, res_mem->end - res_mem->start + 1);
-		if (!cs75xx_gpio_base[i]) {
-			gpio_dbgmsg("Func: %s - unable to remap %s %d memory \n",
-			            __func__, tmp_str, res_mem->end - res_mem->start + 1);
-			goto fail;
-		}
-		gpio_dbgmsg("\tcs75xx_gpio_base[%d] = %p\n", i, cs75xx_gpio_base[i]);
-	}
-
-	for (i = 0; i < GPIO_BANK_NUM; i++) {
-		sprintf(tmp_str, "irq_gpio%d", i);
-		cs75xx_irq_gpio[i] = platform_get_irq_byname(pdev, tmp_str);
-		if (cs75xx_irq_gpio[i] == -ENXIO) {
-			gpio_dbgmsg("Func: %s - can't get resource %s\n", __func__, tmp_str);
-			goto fail;
-		}
-		gpio_dbgmsg("\tcs75xx_irq_gpio[%d] = %08x\n", i, cs75xx_irq_gpio[i]);
-	}
-
-	/* disable irq and register to gpiolib */
-	for (i = 0; i < GPIO_BANK_NUM; i++) {
-		/* disable, unmask and clear all interrupts */
-		__raw_writel(0x0, cs75xx_gpio_base[i] + CS75XX_GPIO_IE);
-
-		for (j = GPIO_IRQ_BASE + i * GPIO_BANK_SIZE;
-		     j < GPIO_IRQ_BASE + (i + 1) * GPIO_BANK_SIZE; j++) {
-			irq_set_chip(j, &cs75xx_gpio_irq_chip);
-			irq_set_handler(j, handle_edge_irq);
-			set_irq_flags(j, IRQF_VALID);
-		}
-
-		irq_set_chained_handler(cs75xx_irq_gpio[i], cs75xx_gpio_irq_handler);
-		irq_set_handler_data(cs75xx_irq_gpio[i], (void *)i);
-	}
-
-	BUG_ON(gpiochip_add(&cs75xx_gpio_chip));
-
-	return 0;
-
-fail:
-	for (i = 0; i < GPIO_BANK_NUM; i++)
-		if (cs75xx_gpio_base[i])
-			iounmap(cs75xx_gpio_base[i]);
-
-	return -ENODEV;
-}
-
-static int __devexit cs75xx_gpio_remove(struct platform_device *pdev)
-{
-	int i, j;
-
-	gpio_dbgmsg("Function: %s\n", __func__);
-
-	/* disable irq and deregister to gpiolib */
-	for (i = 0; i < GPIO_BANK_NUM; i++) {
-		/* disable, unmask and clear all interrupts */
-		__raw_writel(0x0, cs75xx_gpio_base[i] + CS75XX_GPIO_IE);
-		__raw_writel(~0x0, cs75xx_gpio_base[i] + CS75XX_GPIO_INT);
-
-		for (j = GPIO_IRQ_BASE + i * GPIO_BANK_SIZE;
-		     j < GPIO_IRQ_BASE + (i + 1) * GPIO_BANK_SIZE; j++) {
-			irq_set_chip(j, NULL);
-			irq_set_handler(j, NULL);
-			set_irq_flags(j, 0);
-		}
-
-		irq_set_chained_handler(cs75xx_irq_gpio[i], NULL);
-		irq_set_handler_data(cs75xx_irq_gpio[i], NULL);
-	}
-
-	BUG_ON(gpiochip_remove(&cs75xx_gpio_chip));
-
-	for (i = 0; i < GPIO_BANK_NUM; i++)
-		__raw_writel(0x0, cs75xx_global_base + CS75XX_GPIO_MUX_0 + i*4);	// disable valid gpio pin
-
-	return 0;
-}
-
-static struct platform_driver cs75xx_gpio_platform_driver = {
-	.probe	= cs75xx_gpio_probe,
-	.remove	= __devexit_p(cs75xx_gpio_remove),
-	.driver	= {
-		.owner = THIS_MODULE,
-		.name  = CS75XX_GPIO_CTLR_NAME,
+static struct platform_driver cs75xx_gpio_driver = {
+	.driver		= {
+		.name		= DRV_NAME,
+		.of_match_table = cs75xx_gpio_of_match,
 	},
+	.probe		= cs75xx_gpio_probe,
 };
-
-static int __init cs75xx_gpio_init(void)
-{
-	int rc;
-
-	gpio_dbgmsg("\n%s\n", __func__);
-
-	rc = platform_driver_register(&cs75xx_gpio_platform_driver);
-	gpio_dbgmsg(", rc = %d\n", rc);
-
-	return rc;
-}
-
-static void __exit cs75xx_gpio_exit(void)
-{
-	gpio_dbgmsg("\n%s\n", __func__);
-
-	platform_driver_unregister(&cs75xx_gpio_platform_driver);
-}
-
-module_init(cs75xx_gpio_init);
-module_exit(cs75xx_gpio_exit);
-
-MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("Cortina CS75XX GPIO driver");
-
+builtin_platform_driver(cs75xx_gpio_driver);
