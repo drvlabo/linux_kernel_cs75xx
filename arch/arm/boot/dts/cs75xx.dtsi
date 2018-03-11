@@ -50,13 +50,6 @@
 			status = "ok";
 		};
 
-
-		mainclk: clock@F000000C {
-			compatible = "cortina,cs75xx-clk";
-			reg = <0xF000000C 0x04>;	/* global strap */
-			#clock-cells = <1>;
-		};
-
 		global_timer: timer@F8000200 {
 			compatible = "arm,cortex-a9-global-timer";
 			interrupt-parent = <&gic>;
@@ -72,6 +65,23 @@
 			reg = <0xF8000600 0x20>;
 			interrupts = <GIC_PPI 13 IRQ_TYPE_EDGE_RISING>;
 			clocks = <&mainclk CS75XX_CLK_APB>;
+			status = "ok";
+		};
+
+		mainclk: clock@F000000C {
+			compatible = "cortina,cs75xx-clk";
+			reg = <0xF000000C 0x04>;	/* global strap */
+			#clock-cells = <1>;
+			status = "ok";
+		};
+
+		intc: regbus_intc@F0070004 {
+			compatible = "cortina,cs75xx-intc";
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SPI 3 4>;
+			reg = <0xF0070004 0x8>;
 			status = "ok";
 		};
 

@@ -9,6 +9,7 @@ menuconfig ARCH_GOLDENGATE
 	select PINCTRL
 	select PCI
 	select GOLDENGATE_CLK
+	select GOLDENGATE_IRQ
 	help
 	  Support for Cortina CS7542/7522 SoCs
 
