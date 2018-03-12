@@ -21,9 +21,25 @@
 		i2c1 = &i2c1;
 	};
 
+	/* board specific initial values of GPIO_MUXn */
+	&gpio0 {
+		mux-initval = <0x00000000>;
+	};
+	&gpio1 {
+		mux-initval = <0x00000000>;
+	};
+	&gpio2 {
+		mux-initval = <0xFFFFFFFF>;
+	};
+	&gpio3 {
+		mux-initval = <0x00000000>;
+	};
+	&gpio4 {
+		mux-initval = <0xFFFFFFFF>;
+	};
+
 	leds {
 		compatible = "gpio-leds";
-
 		info {
 			label = "info";
 			gpios = <&gpio2 20 GPIO_ACTIVE_HIGH>;
@@ -47,6 +63,11 @@
 			 &gpio1 9 GPIO_ACTIVE_HIGH	/* SCL */
 			>;
 		i2c-gpio,delay-us = <2>;
+
+		hwmon@4d {
+			compatible = "amc6821";
+			reg = <0x4d>;
+		};
 	};
 	i2c1: i2c@1 {
 		compatible = "i2c-gpio";
@@ -54,5 +75,7 @@
 			 &gpio2 2 GPIO_ACTIVE_HIGH	/* SCL */
 			>;
 		i2c-gpio,delay-us = <2>;
+
+		/* connected OLED as 0x3C */
 	};
 };

@@ -195,6 +195,7 @@ static int cs75xx_gpio_probe(struct platform_device *pdev)
 	struct gpio_chip *gpio_chip;
 	struct resource *rp;
 	void __iomem* reg;
+	u32 regval;
 	int irq;
 	int id;
 	int res;
@@ -235,6 +236,11 @@ static int cs75xx_gpio_probe(struct platform_device *pdev)
 		return irq;
 	}
 	priv->irq = irq;
+
+	if (of_property_read_u32(pdev->dev.of_node, "mux-initval", &regval) == 0) {
+		writel(regval, priv->mux_reg);
+		dev_info(&pdev->dev, "initialize GPIO_MUX%d = 0x%08X\n", priv->id, regval);
+	}
 
 	spin_lock_init(&priv->lock);
 
