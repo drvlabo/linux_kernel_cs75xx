@@ -2,6 +2,7 @@
 #include "skeleton.dtsi"
 #include <dt-bindings/clock/cs75xx-clock.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/gpio/gpio.h>
 / {
 	compatible = "cortina,cs75xx";
 

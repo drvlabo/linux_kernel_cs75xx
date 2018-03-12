@@ -292,12 +292,8 @@ static struct platform_driver cs75xx_gpio_driver = {
 	.probe		= cs75xx_gpio_probe,
 };
 
-#if 1
 static int __init cs75xx_gpio_init(void)
 {
 	return platform_driver_register(&cs75xx_gpio_driver);
 }
-late_initcall(cs75xx_gpio_init);
-#else
-builtin_platform_driver(cs75xx_gpio_driver);
-#endif
+postcore_initcall(cs75xx_gpio_init);
