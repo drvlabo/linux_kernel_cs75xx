@@ -30,14 +30,133 @@
 #endif
 
 
+#define	VAL_DIR_IN	(0)
+#define	VAL_DIR_OUT	(1)
+
+
 struct cs75xx_gpio {
 	struct gpio_chip	gpio_chip;
+	spinlock_t		lock;
 	void __iomem		*reg_base;
 	void __iomem		*mux_reg;
 	int			irq;
 	int			id;
 };
 
+/******************* gpio_chip part ********************/
+
+static int cs75xx_gpio_request(struct gpio_chip *chip, unsigned int offs)
+{
+	struct cs75xx_gpio *priv = gpiochip_get_data(chip);
+	unsigned long flags;
+	unsigned int regval;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	regval = readl(priv->mux_reg);
+	regval |= (0x01UL << offs);
+	writel(regval, priv->mux_reg);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+	return 0;
+}
+
+static void cs75xx_gpio_free(struct gpio_chip *chip, unsigned int offset)
+{
+	struct cs75xx_gpio *priv = gpiochip_get_data(chip);
+	unsigned long flags;
+	unsigned int regval;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	regval = readl(priv->mux_reg);
+	regval &= ~(0x01UL << offset);
+	writel(regval, priv->mux_reg);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+}
+
+static void _gpio_set(struct cs75xx_gpio *priv, unsigned int offset, int val)
+{
+	unsigned int regval;
+
+	regval = readl(priv->reg_base + OFFS_OUT);
+	if (val)
+		regval |= 0x01UL << offset;
+	else
+		regval &= ~(0x01UL << offset);
+	writel(regval, priv->reg_base + OFFS_OUT);
+}
+
+static void cs75xx_gpio_set(struct gpio_chip *chip, unsigned int offset, int val)
+{
+	struct cs75xx_gpio *priv = gpiochip_get_data(chip);
+	unsigned long flags;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	_gpio_set(priv, offset, val);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+}
+
+static int cs75xx_gpio_get(struct gpio_chip *chip, unsigned int offset)
+{
+	struct cs75xx_gpio *priv = gpiochip_get_data(chip);
+	unsigned long flags;
+	int val;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	val = (readl(priv->reg_base + OFFS_IN) & (0x01UL << offset)) ? 1 : 0;
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+
+	return val;
+}
+
+static void _gpio_dir(struct cs75xx_gpio *priv, unsigned int offset, int dir)
+{
+	unsigned int regval;
+
+	regval = readl(priv->reg_base + OFFS_CFG);
+	if (dir == VAL_DIR_OUT)
+		regval &= ~(0x01UL << offset);
+	else
+		regval |= (0x01UL << offset);
+	writel(regval, priv->reg_base + OFFS_CFG);
+}
+
+static int cs75xx_gpio_dir_in(struct gpio_chip *chip, unsigned int offset)
+{
+	struct cs75xx_gpio *priv = gpiochip_get_data(chip);
+	unsigned long flags;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	_gpio_dir(priv, offset, VAL_DIR_IN);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+
+	return 0;
+}
+
+static int cs75xx_gpio_dir_out(struct gpio_chip *chip, unsigned int offset, int val)
+{
+	struct cs75xx_gpio *priv = gpiochip_get_data(chip);
+	unsigned long flags;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	_gpio_dir(priv, offset, VAL_DIR_OUT);
+	_gpio_set(priv, offset, val);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+
+	return 0;
+}
+
+/******************* irq_chip part *********************/
 
 static irqreturn_t cs75xx_gpio_irq_handler(int irq, void *data)
 {
@@ -46,15 +165,28 @@ static irqreturn_t cs75xx_gpio_irq_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static void cs75xx_gpio_irq_mask(struct irq_data *irq_data)
+{
+}
+
+static void cs75xx_gpio_irq_unmask(struct irq_data *irq_data)
+{
+}
+
+static int cs75xx_gpio_irq_set_type(struct irq_data *irq_data, unsigned int type)
+{
+	return 0;
+}
+
 static struct irq_chip cs75xx_gpio_irqchip = {
 	.name	= DRV_NAME,
+	.irq_mask	= cs75xx_gpio_irq_mask,
+	.irq_unmask	= cs75xx_gpio_irq_unmask,
+	.irq_set_type	= cs75xx_gpio_irq_set_type,
 #ifdef NOT_YET
-	.irq_mask	= NULL,
-	.irq_unmask	= NULL,
-	.irq_set_type	= NULL,
 	.irq_set_wake	= NULL,
-	.flags		= 0,
 #endif
+	.flags		= IRQCHIP_MASK_ON_SUSPEND,
 };
 
 static int cs75xx_gpio_probe(struct platform_device *pdev)
@@ -104,23 +236,20 @@ static int cs75xx_gpio_probe(struct platform_device *pdev)
 	}
 	priv->irq = irq;
 
-printk("%s:%d: exit\n", __func__, __LINE__);
-return -ENOMEM;
+	spin_lock_init(&priv->lock);
 
 	gpio_chip = &priv->gpio_chip;
-	gpio_chip->label	= dev_name(&pdev->dev);
-	gpio_chip->owner	= THIS_MODULE;
-	gpio_chip->parent	= &pdev->dev;
-#ifdef NOT_YET
-	gpio_chip->request		= NULL;
-	gpio_chip->free			= NULL;
-	gpio_chip->set			= NULL;
-	gpio_chip->get			= NULL;
-	gpio_chip->direction_input	= NULL;
-	gpio_chip->direction_output	= NULL;
-#endif
-	gpio_chip->base		= -1;
-	gpio_chip->ngpio	= GPIO_PIN_NUM;
+	gpio_chip->label		= dev_name(&pdev->dev);
+	gpio_chip->owner		= THIS_MODULE;
+	gpio_chip->parent		= &pdev->dev;
+	gpio_chip->request		= cs75xx_gpio_request;
+	gpio_chip->free			= cs75xx_gpio_free;
+	gpio_chip->set			= cs75xx_gpio_set;
+	gpio_chip->get			= cs75xx_gpio_get;
+	gpio_chip->direction_input	= cs75xx_gpio_dir_in;
+	gpio_chip->direction_output	= cs75xx_gpio_dir_out;
+	gpio_chip->base			= id * GPIO_PIN_NUM;
+	gpio_chip->ngpio		= GPIO_PIN_NUM;
 
 	res = gpiochip_add_data(gpio_chip, priv);
 	if (res) {
@@ -139,9 +268,6 @@ return -ENOMEM;
 	}
 
 	gpiochip_set_chained_irqchip(gpio_chip, &cs75xx_gpio_irqchip, priv->irq, NULL);
-
-printk("%s:%d: exit\n", __func__, __LINE__);
-return -ENOMEM;
 
 	res = devm_request_irq(&pdev->dev, priv->irq, cs75xx_gpio_irq_handler,
 			0, dev_name(&pdev->dev), priv);
@@ -165,4 +291,13 @@ static struct platform_driver cs75xx_gpio_driver = {
 	},
 	.probe		= cs75xx_gpio_probe,
 };
+
+#if 1
+static int __init cs75xx_gpio_init(void)
+{
+	return platform_driver_register(&cs75xx_gpio_driver);
+}
+late_initcall(cs75xx_gpio_init);
+#else
 builtin_platform_driver(cs75xx_gpio_driver);
+#endif
