@@ -161,21 +161,116 @@ static int cs75xx_gpio_dir_out(struct gpio_chip *chip, unsigned int offset, int 
 static irqreturn_t cs75xx_gpio_irq_handler(int irq, void *data)
 {
 	struct cs75xx_gpio *priv = data;
+	unsigned int irq_stat;
+	unsigned int offset;
+	int cnt = 0;
+	unsigned long flags;
 
-	return IRQ_HANDLED;
+	spin_lock_irqsave(&priv->lock, flags);
+
+	irq_stat = readl(priv->reg_base + OFFS_INT);
+	irq_stat &= ~(readl(priv->reg_base + OFFS_IE));
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+
+	while (irq_stat) {
+		offset = __ffs(irq_stat);
+		generic_handle_irq(irq_find_mapping(priv->gpio_chip.irqdomain, offset));
+		cnt++;
+		irq_stat &= ~(0x01UL << offset);
+	}
+
+	return cnt ? IRQ_HANDLED : IRQ_NONE;
 }
 
 static void cs75xx_gpio_irq_mask(struct irq_data *irq_data)
 {
+	struct cs75xx_gpio *priv;
+	unsigned long flags;
+	unsigned int regval;
+
+	priv = gpiochip_get_data(irq_data_get_irq_chip_data(irq_data));
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	regval = readl(priv->reg_base + OFFS_IE);
+	regval &= ~(0x01UL << irq_data->hwirq);
+	writel(regval, priv->reg_base + OFFS_IE);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
 }
 
 static void cs75xx_gpio_irq_unmask(struct irq_data *irq_data)
 {
+	struct cs75xx_gpio *priv;
+	unsigned long flags;
+	unsigned int regval;
+
+	priv = gpiochip_get_data(irq_data_get_irq_chip_data(irq_data));
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	regval = readl(priv->reg_base + OFFS_IE);
+	regval |= (0x01UL << irq_data->hwirq);
+	writel(regval, priv->reg_base + OFFS_IE);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
 }
 
 static int cs75xx_gpio_irq_set_type(struct irq_data *irq_data, unsigned int type)
 {
-	return 0;
+	struct cs75xx_gpio *priv;
+	unsigned long flags;
+	unsigned int reg_lvl;
+	unsigned int reg_edge;
+	unsigned int mask;
+	int res = 0;
+
+	priv = gpiochip_get_data(irq_data_get_irq_chip_data(irq_data));
+
+	mask = 0x01UL << irq_data->hwirq;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	reg_lvl = readl(priv->reg_base + OFFS_LVL);
+	reg_edge = readl(priv->reg_base + OFFS_EDGE);
+
+	switch (type) {
+	case IRQ_TYPE_LEVEL_LOW:
+		reg_lvl &= ~mask;
+		reg_edge &= ~mask;
+		break;
+	case IRQ_TYPE_LEVEL_HIGH:
+		reg_lvl |= mask;
+		reg_edge &= ~mask;
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		reg_lvl &= ~mask;
+		reg_edge |= mask;
+		break;
+	case IRQ_TYPE_EDGE_RISING:
+		reg_lvl |= mask;
+		reg_edge |= mask;
+		break;
+	default:
+		res = -EINVAL;
+		goto l_unlock;
+	}
+
+	writel(reg_lvl, priv->reg_base + OFFS_LVL);
+	writel(reg_edge, priv->reg_base + OFFS_EDGE);
+
+  l_unlock:;
+	spin_unlock_irqrestore(&priv->lock, flags);
+
+	if (res == 0){
+		if (type & (IRQ_TYPE_LEVEL_LOW | IRQ_TYPE_LEVEL_HIGH))
+			irq_set_handler_locked(irq_data, handle_level_irq);
+		else if (type & (IRQ_TYPE_EDGE_FALLING | IRQ_TYPE_EDGE_RISING))
+			irq_set_handler_locked(irq_data, handle_edge_irq);
+	}
+
+	return res;
 }
 
 static struct irq_chip cs75xx_gpio_irqchip = {

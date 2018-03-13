@@ -1,6 +1,7 @@
 
 /dts-v1/;
 #include "cs75xx.dtsi"
+#include <dt-bindings/input/input.h>
 
 / {
 	model = "ELECOM NSB-3NR/3MS Network-Attached Storage series";
@@ -22,19 +23,19 @@
 	};
 
 	/* board specific initial values of GPIO_MUXn */
-	&gpio0 {
+	gpio0 {
 		mux-initval = <0x00000000>;
 	};
-	&gpio1 {
+	gpio1 {
 		mux-initval = <0x00000000>;
 	};
-	&gpio2 {
+	gpio2 {
 		mux-initval = <0xFFFFFFFF>;
 	};
-	&gpio3 {
+	gpio3 {
 		mux-initval = <0x00000000>;
 	};
-	&gpio4 {
+	gpio4 {
 		mux-initval = <0xFFFFFFFF>;
 	};
 
@@ -57,12 +58,33 @@
 		};
 	};
 
+	buttons {
+		compatible = "gpio-keys";
+		display {
+			label = "Display";
+			gpios = <&gpio2 16 GPIO_ACTIVE_LOW>;
+			linux,code = <BTN_0>;
+		};
+		function {
+			label = "Function";
+			gpios = <&gpio2 15 GPIO_ACTIVE_LOW>;
+			linux,code = <BTN_1>;
+		};
+		init {
+			label = "Init";
+			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_RESTART>;
+		};
+	};
+
 	i2c0: i2c@0 {
 		compatible = "i2c-gpio";
 		gpios = <&gpio1 8 GPIO_ACTIVE_HIGH	/* SDA */
 			 &gpio1 9 GPIO_ACTIVE_HIGH	/* SCL */
 			>;
 		i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
 
 		hwmon@4d {
 			compatible = "amc6821";
@@ -75,6 +97,8 @@
 			 &gpio2 2 GPIO_ACTIVE_HIGH	/* SCL */
 			>;
 		i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
 
 		/* connected OLED as 0x3C */
 	};
