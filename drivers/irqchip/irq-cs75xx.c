@@ -1,6 +1,7 @@
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
+#include <linux/irqchip/chained_irq.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
@@ -20,10 +21,14 @@ static void cs75xx_intc_irq_handler(struct irq_desc *desc)
 {
 	struct irq_domain *domain;
 	struct irq_chip_generic *gc;
+	struct irq_chip *chip;
 	u32 irq_stat;
 
+	chip = irq_desc_get_chip(desc);
 	domain = irq_desc_get_handler_data(desc);
 	gc = irq_get_domain_generic_chip(domain, 0);
+
+	chained_irq_enter(chip, desc);
 
 	irq_stat = readl(gc->reg_base + OFFS_INT_STAT);
 	irq_stat &= REGBUS_IRQ_MASK;
@@ -34,6 +39,8 @@ static void cs75xx_intc_irq_handler(struct irq_desc *desc)
 		generic_handle_irq(irq_find_mapping(domain, gc->irq_base + int_no));
 		irq_stat &= ~(0x01UL << int_no);
 	}
+
+	chained_irq_exit(chip, desc);
 }
 
 static int __init cs75xx_irq_init(struct device_node *np, struct device_node *np_parent)
