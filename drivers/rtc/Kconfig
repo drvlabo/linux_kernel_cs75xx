@@ -1706,6 +1706,13 @@ config RTC_DRV_PIC32
 	   This driver can also be built as a module. If so, the module
 	   will be called rtc-pic32
 
+config RTC_DRV_CS75XX
+	tristate "Cortina CS75xx RTC"
+	depends on ARCH_GOLDENGATE
+	help
+	  If you say Y here you will get support for the RTC found on
+	  the Cortina CS75xx Soc.
+
 comment "HID Sensor RTC drivers"
 
 config RTC_DRV_HID_SENSOR_TIME
