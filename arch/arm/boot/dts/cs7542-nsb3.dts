@@ -85,6 +85,10 @@
 
 		/* connected OLED as 0x3C */
 	};
+
+	rtc0 {
+		status = "ok";
+	};
 };
 
 /* board specific initial values of GPIO_MUXn */

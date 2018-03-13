@@ -27,11 +27,16 @@
 #include <linux/bcd.h>
 #include <linux/clk.h>
 #include <linux/log2.h>
+#include <linux/of.h>
 
 #include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <linux/slab.h>
+
+
+
+#define	DRV_NAME	"cs75xx-rtc"
 
 
 
@@ -545,7 +550,7 @@ static int __init g2_rtc_probe(struct platform_device *pdev)
 	}
 	printk("%s: Physcial base address = %x ",__func__,res->start);
 
-	g2_rtc_base = ioremap(res->start, res->end - res->start + 1);
+	g2_rtc_base = devm_ioremap_resource(&pdev->dev, res);
 	if (g2_rtc_base == NULL) {
 		dev_err(&pdev->dev, "failed ioremap()\n");
 		ret = -EINVAL;
@@ -560,7 +565,7 @@ static int __init g2_rtc_probe(struct platform_device *pdev)
 	device_init_wakeup(&pdev->dev, 1);
 
 	/* register RTC and exit */
-	rtc = rtc_device_register("g2-rtc", &pdev->dev, &g2_rtcops, THIS_MODULE);
+	rtc = devm_rtc_device_register(&pdev->dev, DRV_NAME, &g2_rtcops, THIS_MODULE);
 
 	if (IS_ERR(rtc)) {
 		dev_err(&pdev->dev, "cannot attach rtc\n");
@@ -610,34 +615,31 @@ static int g2_rtc_resume(struct platform_device *pdev)
 #define g2_rtc_resume  NULL
 #endif
 
+#ifdef CONFIG_OF
+static const struct of_device_id cs75xx_rtc_of_match_table[] = {
+	{ .compatible = "cortina,cs75xx-rtc" },
+	{}
+};
+MODULE_DEVICE_TABLE(of, cs75xx_rtc_of_match_table);
+#endif
+
 static struct platform_driver g2_rtc_driver = {
 	.probe		= g2_rtc_probe,
 	.remove		= __exit_p(g2_rtc_remove),
-/*	.suspend	= g2_rtc_suspend, */
-/*	.resume		= g2_rtc_resume,  */
+#if 0
+	.suspend	= g2_rtc_suspend,
+	.resume		= g2_rtc_resume,
+#endif
 	.driver		= {
-		.name	= "g2-rtc",
+		.name	= DRV_NAME,
 		.owner	= THIS_MODULE,
+		.of_match_table = of_match_ptr(cs75xx_rtc_of_match_table),
 	},
 };
 
-static char __initdata banner[] = "CS-XXXX RTC, (c) 2010 Cortina System\n";
-
-static int __init g2_rtc_init(void)
-{
-	printk(banner);
-	return platform_driver_register(&g2_rtc_driver);
-}
-
-static void __exit g2_rtc_exit(void)
-{
-	platform_driver_unregister(&g2_rtc_driver);
-}
-
-module_init(g2_rtc_init);
-module_exit(g2_rtc_exit);
+module_platform_driver_probe(g2_rtc_driver, g2_rtc_probe);
 
 MODULE_DESCRIPTION("Cortina System RTC Driver");
 MODULE_AUTHOR("<amos.lee@cortina-system.com>");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("platform:rtc-g2");
+MODULE_ALIAS("platform:cs75xx-rtc");
