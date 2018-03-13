@@ -9,6 +9,7 @@
 
 
 #define	REGBUS_IRQ_NUM	(15)
+#define	REGBUS_IRQ_MASK	((0x01UL << REGBUS_IRQ_NUM) - 1)
 
 #define	OFFS_INT_STAT	(0x00)
 #define	OFFS_INT_ENABLE	(0x04)
@@ -25,6 +26,7 @@ static void cs75xx_intc_irq_handler(struct irq_desc *desc)
 	gc = irq_get_domain_generic_chip(domain, 0);
 
 	irq_stat = readl(gc->reg_base + OFFS_INT_STAT);
+	irq_stat &= REGBUS_IRQ_MASK;
 
 	while (irq_stat) {
 		u32 int_no = __fls(irq_stat);
