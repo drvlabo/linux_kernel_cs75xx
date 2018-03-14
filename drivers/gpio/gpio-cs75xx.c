@@ -214,9 +214,14 @@ static void cs75xx_gpio_irq_handler(struct irq_desc *desc)
 	spin_lock_irqsave(&priv->lock, flags);
 
 	irq_stat = readl(priv->reg_base + OFFS_INT);
-	irq_stat &= ~(readl(priv->reg_base + OFFS_IE));
+#if 0
+	writel(irq_stat,priv->reg_base + OFFS_INT);
+#endif
+	irq_stat &= readl(priv->reg_base + OFFS_IE);
 
 	spin_unlock_irqrestore(&priv->lock, flags);
+
+printk("irq_stat = 0x%08X\n", irq_stat);
 
 	for (k = 0; (k < GPIO_PIN_NUM) && irq_stat ; k++) {
 		unsigned int mask = 0x01UL << k;
@@ -224,6 +229,24 @@ static void cs75xx_gpio_irq_handler(struct irq_desc *desc)
 		if (!(irq_stat & mask))
 			continue;
 
+#if 1
+#if 0
+{
+unsigned int ul;
+ul = readl(priv->reg_base + OFFS_IE);
+writel(ul & ~(0x01UL << k),priv->reg_base + OFFS_IE);
+}
+#endif
+printk("%s: (%d,%d)\n", __func__, priv->id, k);
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_CFG));
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_OUT));
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_IN));
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_LVL));
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_EDGE));
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_IE));
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_INT));
+printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + 0x1C));
+#endif
 		if (priv->toggle_mask & mask) {
 			spin_lock_irqsave(&priv->lock, flags);
 			_toggle_irq_edge_trig(priv, k);
@@ -444,6 +467,17 @@ static int cs75xx_gpio_probe(struct platform_device *pdev)
 
 	/* disable all interrupts */
 	writel(0x00000000UL, priv->reg_base + OFFS_IE);
+
+#if 0
+	writel(0x00000000UL, priv->reg_base + OFFS_CFG);
+#endif
+
+	writel(0x00000000UL, priv->reg_base + OFFS_LVL);
+	writel(0x00000000UL, priv->reg_base + OFFS_EDGE);
+	writel(0xFFFFFFFFUL, priv->reg_base + OFFS_INT);
+	writel(0x00000000UL, priv->reg_base + OFFS_INT);
+	writel(0xFFFFFFFFUL, priv->reg_base + 0x1C);
+	writel(0x00000000UL, priv->reg_base + 0x1C);
 
 	res = gpiochip_irqchip_add(gpio_chip, &cs75xx_gpio_irqchip, 0,
 					handle_level_irq, IRQ_TYPE_NONE);
