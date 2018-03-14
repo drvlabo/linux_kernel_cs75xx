@@ -10,6 +10,7 @@
 #include <linux/of_irq.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
+#include "gpiolib.h"
 
 
 #define	DRV_NAME	"cs75xx-gpio"
@@ -25,9 +26,6 @@
 #define	OFFS_EDGE	(0x10)
 #define	OFFS_IE		(0x14)
 #define	OFFS_INT	(0x18)
-#if 0
-#define	OFFS_STAT	(0x1C)
-#endif
 
 
 #define	VAL_DIR_IN	(0)
@@ -167,43 +165,11 @@ static void _toggle_irq_edge_trig(struct cs75xx_gpio *priv, unsigned int offs)
 	writel(regval ^ (0x01UL << offs), priv->reg_base + OFFS_LVL);
 }
 
-#if 0
-static irqreturn_t cs75xx_gpio_irq_handler(int irq, void *data)
-{
-	struct cs75xx_gpio *priv = data;
-	unsigned long flags;
-	unsigned int irq_stat;
-	unsigned int offset;
-	int cnt = 0;
-
-	spin_lock_irqsave(&priv->lock, flags);
-	irq_stat = readl(priv->reg_base + OFFS_INT);
-	irq_stat &= ~(readl(priv->reg_base + OFFS_IE));
-	spin_unlock_irqrestore(&priv->lock, flags);
-
-	while (irq_stat) {
-		offset = __ffs(irq_stat);
-
-		if (priv->toggle_mask & (0x01UL << offset)) {
-			spin_lock_irqsave(&priv->lock, flags);
-			_toggle_irq_edge_trig(priv, offset);
-			spin_unlock_irqrestore(&priv->lock, flags);
-		}
-		generic_handle_irq(irq_find_mapping(priv->gpio_chip.irqdomain, offset));
-		irq_stat &= ~(0x01UL << offset);
-		cnt++;
-	}
-
-	return cnt ? IRQ_HANDLED : IRQ_NONE;
-}
-#else
 static void cs75xx_gpio_irq_handler(struct irq_desc *desc)
 {
 	struct cs75xx_gpio *priv;
 	unsigned int irq_stat;
-	unsigned int offset;
 	struct irq_chip *irqchip;
-	int k;
 	unsigned long flags;
 
 	priv = gpiochip_get_data(irq_desc_get_handler_data(desc));
@@ -214,51 +180,26 @@ static void cs75xx_gpio_irq_handler(struct irq_desc *desc)
 	spin_lock_irqsave(&priv->lock, flags);
 
 	irq_stat = readl(priv->reg_base + OFFS_INT);
-#if 0
-	writel(irq_stat,priv->reg_base + OFFS_INT);
-#endif
 	irq_stat &= readl(priv->reg_base + OFFS_IE);
 
 	spin_unlock_irqrestore(&priv->lock, flags);
 
-printk("irq_stat = 0x%08X\n", irq_stat);
+	while (irq_stat) {
+		unsigned int offset;
 
-	for (k = 0; (k < GPIO_PIN_NUM) && irq_stat ; k++) {
-		unsigned int mask = 0x01UL << k;
+		offset = __fls(irq_stat);
 
-		if (!(irq_stat & mask))
-			continue;
-
-#if 1
-#if 0
-{
-unsigned int ul;
-ul = readl(priv->reg_base + OFFS_IE);
-writel(ul & ~(0x01UL << k),priv->reg_base + OFFS_IE);
-}
-#endif
-printk("%s: (%d,%d)\n", __func__, priv->id, k);
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_CFG));
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_OUT));
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_IN));
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_LVL));
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_EDGE));
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_IE));
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + OFFS_INT));
-printk("%s: 0x%08X\n", __func__, readl(priv->reg_base + 0x1C));
-#endif
-		if (priv->toggle_mask & mask) {
+		if (priv->toggle_mask & (0x01UL << offset)) {
 			spin_lock_irqsave(&priv->lock, flags);
-			_toggle_irq_edge_trig(priv, k);
+			_toggle_irq_edge_trig(priv, offset);
 			spin_unlock_irqrestore(&priv->lock, flags);
 		}
-		generic_handle_irq(irq_find_mapping(priv->gpio_chip.irqdomain, k));
-		irq_stat &= ~mask;
+		generic_handle_irq(irq_find_mapping(priv->gpio_chip.irqdomain, offset));
+		irq_stat &= ~(0x01UL << offset);
 	}
 
 	chained_irq_exit(irqchip, desc);
 }
-#endif
 
 static void cs75xx_gpio_irq_ack(struct irq_data *irq_data)
 {
@@ -270,10 +211,7 @@ static void cs75xx_gpio_irq_ack(struct irq_data *irq_data)
 	spin_lock_irqsave(&priv->lock, flags);
 
 	writel(0x01UL << irq_data->hwirq, priv->reg_base + OFFS_INT);
-#if 0
-	writel(0xFFFFFFFF, priv->reg_base + OFFS_INT);
-	writel(0x00000000, priv->reg_base + OFFS_INT);
-#endif
+
 	spin_unlock_irqrestore(&priv->lock, flags);
 }
 
@@ -344,15 +282,21 @@ static int cs75xx_gpio_irq_set_type(struct irq_data *irq_data, unsigned int type
 		reg_edge &= ~mask;
 		break;
 	case IRQ_TYPE_EDGE_FALLING:
+	l_edge_f:
 		reg_lvl &= ~mask;
+		reg_edge |= mask;
+		break;
+	case IRQ_TYPE_EDGE_RISING:
+	l_edge_r:
+		reg_lvl |= mask;
 		reg_edge |= mask;
 		break;
 	case IRQ_TYPE_EDGE_BOTH:
 		priv->toggle_mask |= (0x01UL << irq_data->hwirq);
-		/* fall-through */
-	case IRQ_TYPE_EDGE_RISING:
-		reg_lvl |= mask;
-		reg_edge |= mask;
+		if (gpiod_is_active_low(gpiochip_get_desc(&priv->gpio_chip, irq_data->hwirq)))
+			goto l_edge_f;
+		else
+			goto l_edge_r;
 		break;
 	default:
 		res = -EINVAL;
@@ -384,7 +328,7 @@ static struct irq_chip cs75xx_gpio_irqchip = {
 #ifdef NOT_YET
 	.irq_set_wake	= NULL,
 #endif
-#if 1
+#if 0
 	.flags		= IRQCHIP_MASK_ON_SUSPEND | IRQCHIP_SET_TYPE_MASKED,
 #else
 	.flags		= IRQCHIP_MASK_ON_SUSPEND,
@@ -468,16 +412,8 @@ static int cs75xx_gpio_probe(struct platform_device *pdev)
 	/* disable all interrupts */
 	writel(0x00000000UL, priv->reg_base + OFFS_IE);
 
-#if 0
-	writel(0x00000000UL, priv->reg_base + OFFS_CFG);
-#endif
-
-	writel(0x00000000UL, priv->reg_base + OFFS_LVL);
-	writel(0x00000000UL, priv->reg_base + OFFS_EDGE);
+	/* clear all pendings */
 	writel(0xFFFFFFFFUL, priv->reg_base + OFFS_INT);
-	writel(0x00000000UL, priv->reg_base + OFFS_INT);
-	writel(0xFFFFFFFFUL, priv->reg_base + 0x1C);
-	writel(0x00000000UL, priv->reg_base + 0x1C);
 
 	res = gpiochip_irqchip_add(gpio_chip, &cs75xx_gpio_irqchip, 0,
 					handle_level_irq, IRQ_TYPE_NONE);
@@ -486,17 +422,8 @@ static int cs75xx_gpio_probe(struct platform_device *pdev)
 		return res;
 	}
 
-printk("%s: this_irq = %d\n", __func__, priv->irq);
-#if 0
-	gpiochip_set_chained_irqchip(gpio_chip, &cs75xx_gpio_irqchip, priv->irq,
-					NULL);
-
-	res = devm_request_irq(&pdev->dev, priv->irq, cs75xx_gpio_irq_handler,
-				0, "g2_gpio", priv);
-#else
 	gpiochip_set_chained_irqchip(gpio_chip, &cs75xx_gpio_irqchip, priv->irq,
 					cs75xx_gpio_irq_handler);
-#endif
 
 	return 0;
 }

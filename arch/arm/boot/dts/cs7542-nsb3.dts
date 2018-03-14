@@ -22,23 +22,6 @@
 		i2c1 = &i2c1;
 	};
 
-	/* board specific initial values of GPIO_MUXn */
-	gpio0 {
-		mux-initval = <0x00000000>;
-	};
-	gpio1 {
-		mux-initval = <0x00000000>;
-	};
-	gpio2 {
-		mux-initval = <0xFFFFFFFF>;
-	};
-	gpio3 {
-		mux-initval = <0x00000000>;
-	};
-	gpio4 {
-		mux-initval = <0xFFFFFFFF>;
-	};
-
 	leds {
 		compatible = "gpio-leds";
 		info {
@@ -102,4 +85,21 @@
 
 		/* connected OLED as 0x3C */
 	};
+};
+
+/* board specific initial values of GPIO_MUXn */
+&gpio0 {
+	mux-initval = <0x00000000>;
+};
+&gpio1 {
+	mux-initval = <0x00000000>;
+};
+&gpio2 {
+	mux-initval = <0xFFFFFFFF>;
+};
+&gpio3 {
+	mux-initval = <0x00000000>;
+};
+&gpio4 {
+	mux-initval = <0xFFFFFFFF>;
 };
