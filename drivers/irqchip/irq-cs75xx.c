@@ -17,6 +17,9 @@
 
 
 
+static void __iomem *g_reg_base;
+
+
 static void cs75xx_intc_irq_handler(struct irq_desc *desc)
 {
 	struct irq_domain *domain;
@@ -41,6 +44,15 @@ static void cs75xx_intc_irq_handler(struct irq_desc *desc)
 	}
 
 	chained_irq_exit(chip, desc);
+}
+
+static void cs75xx_irq_ack(struct irq_data *irqdata)
+{
+	unsigned int regval;
+
+	regval = readl(g_reg_base + OFFS_INT_ENABLE);
+	regval &= ~(0x01UL << irqdata->hwirq);
+	writel(regval, g_reg_base + OFFS_INT_ENABLE);
 }
 
 static int __init cs75xx_irq_init(struct device_node *np, struct device_node *np_parent)
@@ -74,6 +86,7 @@ static int __init cs75xx_irq_init(struct device_node *np, struct device_node *np
 		pr_err("%s: ioremap() failed.\n", np->name);
 		return -ENOMEM;
 	}
+	g_reg_base = reg_base;
 
 	domain = irq_domain_add_linear(np, REGBUS_IRQ_NUM, &irq_generic_chip_ops, NULL);
 	if (domain == NULL) {
@@ -94,7 +107,9 @@ static int __init cs75xx_irq_init(struct device_node *np, struct device_node *np
 	gc->chip_types[0].regs.mask = OFFS_INT_ENABLE;
 	gc->chip_types[0].chip.irq_mask = irq_gc_mask_clr_bit;
 	gc->chip_types[0].chip.irq_unmask = irq_gc_mask_set_bit;
-
+#if 0
+	gc->chip_types[0].chip.irq_ack = cs75xx_irq_ack;
+#endif
 	/* mask all interrupts */
 	writel(0x00000000UL, gc->reg_base + OFFS_INT_ENABLE);
 
