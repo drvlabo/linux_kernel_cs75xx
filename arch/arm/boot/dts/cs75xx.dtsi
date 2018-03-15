@@ -75,11 +75,10 @@
 		};
 
 		arm_wdt: twd_wdt@F8000620 {
-			compatible = "arm,cortex-a9-twd-timer";
+			compatible = "arm,cortex-a9-twd-wdt";
 			interrupt-parent = <&gic>;
 			reg = <0xF8000620 0x20>;
 			interrupts = <GIC_PPI 14 IRQ_TYPE_EDGE_RISING>;
-			clocks = <&mainclk CS75XX_CLK_APB>;
 			status = "disable";
 		};
 
