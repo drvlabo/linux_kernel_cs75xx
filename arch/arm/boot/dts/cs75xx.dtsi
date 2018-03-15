@@ -2,12 +2,18 @@
 #include "skeleton.dtsi"
 #include <dt-bindings/clock/cs75xx-clock.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/gpio/gpio.h>
 / {
 	compatible = "cortina,cs75xx";
 
 	aliases {
 		serial0 = &uart0;
 		serial1 = &uart1;
+		gpio0 = &gpio0;
+		gpio1 = &gpio1;
+		gpio2 = &gpio2;
+		gpio3 = &gpio3;
+		gpio4 = &gpio4;
 	};
 
 	cpus {
@@ -100,6 +106,57 @@
 			interrupts = <GIC_SPI 7 4>;	/* 39 - 32 = 7 */
 			clocks = <&mainclk CS75XX_CLK_APB>;
 			status = "ok";
+		};
+
+		gpio0: gpio@F00701D0 {
+			compatible = "cortina,cs75xx-gpio";
+			reg = <0xF00701D0 0x20>, <0xF000001C 0x04>;
+			interrupts = <6>;
+			interrupt-parent = <&intc>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+		gpio1: gpio@F00701F0 {
+			compatible = "cortina,cs75xx-gpio";
+			reg = <0xF00701F0 0x20>, <0xF0000020 0x04>;
+			interrupts = <7>;
+			interrupt-parent = <&intc>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+		gpio2: gpio@F0070210 {
+			compatible = "cortina,cs75xx-gpio";
+			reg = <0xF0070210 0x20>, <0xF0000024 0x04>;
+			interrupts = <8>;
+			interrupt-parent = <&intc>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+		gpio3: gpio@F0070230 {
+			compatible = "cortina,cs75xx-gpio";
+			reg = <0xF0070230 0x20>, <0xF0000028 0x04>;
+			interrupts = <9>;
+			interrupt-parent = <&intc>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+		gpio4: gpio@F0070250 {
+			compatible = "cortina,cs75xx-gpio";
+			reg = <0xF0070250 0x20>, <0xF000002C 0x04>;
+			interrupts = <10>;
+			interrupt-parent = <&intc>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
 		};
 	};
 };
