@@ -65,13 +65,21 @@
 			status = "ok";
 		};
 
-		scutimer: scu_timer@F8000600 {
+		arm_timer: twd_timer@F8000600 {
 			compatible = "arm,cortex-a9-twd-timer";
 			interrupt-parent = <&gic>;
 			reg = <0xF8000600 0x20>;
 			interrupts = <GIC_PPI 13 IRQ_TYPE_EDGE_RISING>;
 			clocks = <&mainclk CS75XX_CLK_APB>;
 			status = "ok";
+		};
+
+		arm_wdt: twd_wdt@F8000620 {
+			compatible = "arm,cortex-a9-twd-wdt";
+			interrupt-parent = <&gic>;
+			reg = <0xF8000620 0x20>;
+			interrupts = <GIC_PPI 14 IRQ_TYPE_EDGE_RISING>;
+			status = "disable";
 		};
 
 		mainclk: clock@F000000C {
