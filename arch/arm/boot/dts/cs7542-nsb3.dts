@@ -17,10 +17,12 @@
 	};
 #endif
 
+#if 0
 	alias {
 		i2c0 = &i2c0;
 		i2c1 = &i2c1;
 	};
+#endif
 
 	leds {
 		compatible = "gpio-leds";
@@ -111,3 +113,10 @@
 &arm_wdt {
 	status = "ok";
 };
+
+#if 0
+&soc_i2c {
+	clock-frequency = <100000>;
+	status = "ok";
+};
+#endif

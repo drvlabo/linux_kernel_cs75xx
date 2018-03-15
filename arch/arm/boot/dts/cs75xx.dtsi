@@ -175,5 +175,16 @@
 			interrupt-controller;
 			#interrupt-cells = <2>;
 		};
+
+		soc_i2c: i2c@0xF00700E8 {
+			compatible = "cortina,cs75xx-i2c";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0xF00700E8 0x28>;
+			interrupts = <11>;
+			interrupt-parent = <&intc>;
+			clocks = <&mainclk CS75XX_CLK_APB>;
+			status = "disabled";
+		};
 	};
 };
