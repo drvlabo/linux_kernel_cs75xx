@@ -82,7 +82,7 @@ static int __init cs75xx_irq_init(struct device_node *np, struct device_node *np
 		goto l_unmap;
 	}
 
-	res = irq_alloc_domain_generic_chips(domain, REGBUS_IRQ_NUM, 1, np->name,
+	res = irq_alloc_domain_generic_chips(domain, REGBUS_IRQ_NUM, 1, "REGBUS",
 				handle_level_irq, _CLR, _SET, IRQ_GC_INIT_MASK_CACHE);
 	if (res) {
 		pr_err("%s: could not alloc irq_domain and gc.\n", np->name);
