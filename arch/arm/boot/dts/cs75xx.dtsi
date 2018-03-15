@@ -105,7 +105,16 @@
 			interrrupt-parent = <&gic>;
 			interrupts = <GIC_SPI 7 4>;	/* 39 - 32 = 7 */
 			clocks = <&mainclk CS75XX_CLK_APB>;
-			status = "ok";
+			status = "disabled";
+		};
+
+		rtc0: rtc@F4920000 {
+			compatible = "cortina,cs75xx-rtc";
+			reg = <0xF4920000 0x50>;
+			interrrupt-parent = <&gic>;
+			interrupts = <GIC_SPI 10 4>,
+					<GIC_SPI 11 4>;
+			status = "disabled";
 		};
 
 		gpio0: gpio@F00701D0 {

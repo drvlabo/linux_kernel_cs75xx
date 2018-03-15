@@ -103,3 +103,7 @@
 &gpio4 {
 	mux-initval = <0xFFFFFFFF>;
 };
+
+&rtc0 {
+	status = "ok";
+};
