@@ -235,6 +235,14 @@ config ARM_SBSA_WATCHDOG
 	  To compile this driver as module, choose M here: The module
 	  will be called sbsa_gwdt.
 
+config	ARM_TWD_WATCHDOG
+	tristate "ARM TWD Watchdog"
+	depends on HAVE_ARM_TWD
+	help
+	  ARM TWD Watchdog timer.
+	  This will
+	  reboot the system when the timer expires with the watchdog enabled.
+
 config ASM9260_WATCHDOG
 	tristate "Alphascale ASM9260 watchdog"
 	depends on MACH_ASM9260
