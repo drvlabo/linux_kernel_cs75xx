@@ -107,3 +107,7 @@
 &rtc0 {
 	status = "ok";
 };
+
+&arm_wdt {
+	status = "ok";
+};
