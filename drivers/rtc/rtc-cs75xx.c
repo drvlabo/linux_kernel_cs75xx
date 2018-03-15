@@ -48,9 +48,6 @@
 #define G2_RTC_RTCCON_CLKRST (1<<2)
 #define G2_RTC_RTCCON_OSCEN  (1<<3)
 
-//#define G2_RTC_TICNT	      G2_RTC_RTCREG(0x44)
-//#define G2_RTC_TICNT_ENABLE  (1<<7)
-
 #define G2_RTC_RTCALM	      G2_RTC_RTCREG(0x04)
 #define G2_RTC_RTCALM_ALMEN  (1<<7)
 #define G2_RTC_RTCALM_YEAREN (1<<6)
@@ -92,8 +89,6 @@
 #define G2_RTC_WKUPPEND	      G2_RTC_RTCREG(0x4c)
 
 
-
-static struct resource *g2_rtc_mem;
 
 static void __iomem *g2_rtc_base;
 static int g2_rtc_alarmno = NO_IRQ;
@@ -391,17 +386,6 @@ static int g2_rtc_setalarmirq(struct device *dev, unsigned int enabled)
 	return 0;
 }
 
-/*
-static int g2_rtc_proc(struct device *dev, struct seq_file *seq)
-{
-	unsigned int ticnt = readb(g2_rtc_base + G2_RTC_TICNT);
-
-	seq_printf(seq, "periodic_IRQ\t: %s\n",
-		     (ticnt & G2_RTC_TICNT_ENABLE) ? "yes" : "no" );
-	return 0;
-}
-*/
-
 static int g2_rtc_open(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
@@ -502,8 +486,6 @@ static int __exit g2_rtc_remove(struct platform_device *dev)
 	g2_rtc_setaie(0);
 
 	iounmap(g2_rtc_base);
-	release_resource(g2_rtc_mem);
-	kfree(g2_rtc_mem);
 
 	return 0;
 }
@@ -539,25 +521,12 @@ static int __init g2_rtc_probe(struct platform_device *pdev)
 		return -ENOENT;
 	}
 
-	g2_rtc_mem = request_mem_region(res->start,
-					 res->end-res->start+1,
-					 pdev->name);
-
-	if (g2_rtc_mem == NULL) {
-		dev_err(&pdev->dev, "failed to reserve memory region\n");
-		ret = -ENOENT;
-		goto err_nores;
-	}
-	printk("%s: Physcial base address = %x ",__func__,res->start);
-
 	g2_rtc_base = devm_ioremap_resource(&pdev->dev, res);
 	if (g2_rtc_base == NULL) {
 		dev_err(&pdev->dev, "failed ioremap()\n");
 		ret = -EINVAL;
 		goto err_nomap;
 	}
-	printk("%s: Virtual base address =%x  Alarm IRQ=%d...\n",	\
-		__func__,(unsigned int)g2_rtc_base,g2_rtc_alarmno);
 
 	/* check to see if everything is setup correctly */
 	g2_rtc_enable(pdev, 1);
@@ -583,8 +552,6 @@ static int __init g2_rtc_probe(struct platform_device *pdev)
 	iounmap(g2_rtc_base);
 
  err_nomap:
-	release_resource(g2_rtc_mem);
-
  err_nores:
 	return ret;
 }
