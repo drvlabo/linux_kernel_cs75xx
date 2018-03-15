@@ -25,15 +25,16 @@
 #include <linux/uaccess.h>
 #include <linux/slab.h>
 #include <linux/smp.h>
+#include <linux/of.h>
 #include <asm/io.h>
 
 
-#define TWD_WDT_LOAD			0x20
-#define TWD_WDT_COUNTER			0x24
-#define TWD_WDT_CONTROL			0x28
-#define TWD_WDT_INTSTAT			0x2C
-#define TWD_WDT_RESETSTAT		0x30
-#define TWD_WDT_DISABLE			0x34
+#define OFFS_LOAD	0x00
+#define OFFS_COUNTER	0x04
+#define OFFS_CONTROL	0x08
+#define OFFS_INTSTAT	0x0C
+#define OFFS_RESETSTAT	0x10
+#define OFFS_DISABLE	0x14
 
 
 struct twd_wdt {
@@ -80,11 +81,11 @@ static irqreturn_t twd_wdt_fire(int irq, void *arg)
 	const struct twd_wdt *wdt = *(void **)arg;
 
 	/* Check it really was our interrupt */
-	if (readl(wdt->base + TWD_WDT_INTSTAT)) {
+	if (readl(wdt->base + OFFS_INTSTAT)) {
 		dev_printk(KERN_CRIT, wdt->dev,
 			"Triggered - Reboot ignored.\n");
 		/* Clear the interrupt on the watchdog */
-		writel(1, wdt->base + TWD_WDT_INTSTAT);
+		writel(1, wdt->base + OFFS_INTSTAT);
 		return IRQ_HANDLED;
 	}
 	return IRQ_NONE;
@@ -108,7 +109,7 @@ static void twd_wdt_keepalive(void *info)
 	count = (twd_wdt_timer_rate / 256) * twd_wdt_margin;
 
 	/* Reload the counter */
-	writel(count + wdt->perturb, wdt->base + TWD_WDT_LOAD);
+	writel(count + wdt->perturb, wdt->base + OFFS_LOAD);
 	wdt->perturb = wdt->perturb ? 0 : 1;
 }
 
@@ -118,10 +119,10 @@ static void twd_wdt_stop(void *info)
 
 	spin_lock(&wdt_lock);
 	/* switch from watchdog mode to timer mode */
-	writel(0x12345678, wdt->base + TWD_WDT_DISABLE);
-	writel(0x87654321, wdt->base + TWD_WDT_DISABLE);
+	writel(0x12345678, wdt->base + OFFS_DISABLE);
+	writel(0x87654321, wdt->base + OFFS_DISABLE);
 	/* watchdog is disabled */
-	writel(0x0, wdt->base + TWD_WDT_CONTROL);
+	writel(0x0, wdt->base + OFFS_CONTROL);
 	spin_unlock(&wdt_lock);
 }
 
@@ -136,10 +137,10 @@ static void twd_wdt_start(void *info)
 
 	if (twd_wdt_noboot) {
 		/* Enable watchdog - prescale=256, watchdog mode=0, enable=1 */
-		writel(0x0000FF01, wdt->base + TWD_WDT_CONTROL);
+		writel(0x0000FF01, wdt->base + OFFS_CONTROL);
 	} else {
 		/* Enable watchdog - prescale=256, watchdog mode=1, enable=1 */
-		writel(0x0000FF09, wdt->base + TWD_WDT_CONTROL);
+		writel(0x0000FF09, wdt->base + OFFS_CONTROL);
 	}
 	spin_unlock(&wdt_lock);
 }
@@ -235,7 +236,7 @@ static struct watchdog_info ident = {
 	.options		= WDIOF_SETTIMEOUT |
 				  WDIOF_KEEPALIVEPING |
 				  WDIOF_MAGICCLOSE,
-	.identity		= "TWD Watchdog",
+	.identity		= "ARM TWD Watchdog",
 };
 
 static long twd_wdt_ioctl(struct file *file, unsigned int cmd,
@@ -356,11 +357,6 @@ static int __init twd_wdt_probe(struct platform_device *dev)
 	int ret;
 	int i;
 
-	/* We only accept one device, and it must have an id of -1 */
-/*	if (dev->id != -1)
-		return -ENODEV;
-*/
-
 	res = platform_get_resource(dev, IORESOURCE_MEM, 0);
 	if (!res) {
 		ret = -ENODEV;
@@ -450,7 +446,16 @@ static int __exit twd_wdt_remove(struct platform_device *dev)
 }
 
 /* work with hotplug and coldplug */
-MODULE_ALIAS("platform:twd_wdt");
+MODULE_ALIAS("platform:arm_twd_wdt");
+
+#ifdef CONFIG_OF
+static const struct of_device_id twd_wdt_of_match_table[] = {
+	{ .compatible = "arm,cortex-a9-twd-wdt" },
+	{ .compatible = "arm,cortex-a5-twd-wdt" },
+	{},
+};
+MODULE_DEVICE_TABLE(of,twd_wdt_of_match_table);
+#endif
 
 static struct platform_driver twd_wdt_driver = {
 	.probe		= twd_wdt_probe,
@@ -459,13 +464,16 @@ static struct platform_driver twd_wdt_driver = {
 	.driver		= {
 		.owner	= THIS_MODULE,
 		.name	= "twd-wdt",
+#ifdef CONFIG_OF
+		.of_match_table = twd_wdt_of_match_table,
+#endif
 	},
 };
 
 static char banner[] __initdata = KERN_INFO "ARM TWD Watchdog Timer: 0.1. "
 		"twd_wdt_noboot=%d twd_wdt_margin=%d sec (nowayout= %d)\n";
 
-static int __init twd_wdt_init(void)
+static int __init arm_twd_wdt_init(void)
 {
 	/*
 	 * Check that the margin value is within it's range;
@@ -484,13 +492,13 @@ static int __init twd_wdt_init(void)
 	return platform_driver_register(&twd_wdt_driver);
 }
 
-static void __exit twd_wdt_exit(void)
+static void __exit arm_twd_wdt_exit(void)
 {
 	platform_driver_unregister(&twd_wdt_driver);
 }
 
-module_init(twd_wdt_init);
-module_exit(twd_wdt_exit);
+module_init(arm_twd_wdt_init);
+module_exit(arm_twd_wdt_exit);
 
 MODULE_AUTHOR("Cortina-Systems Limited");
 MODULE_DESCRIPTION("ARM TWD Watchdog Device Driver");
