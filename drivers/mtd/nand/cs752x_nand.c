@@ -1092,7 +1092,7 @@ static int cs752x_nand_erase_block(struct mtd_info *mtd, int page)
  */
 static int cs752x_nand_read_subpage(struct mtd_info *mtd,
 				    struct nand_chip *chip, uint32_t data_offs,
-				    uint32_t readlen, uint8_t * bufpoi)
+				    uint32_t readlen, uint8_t * bufpoi, int page)
 {
 	int start_step, end_step, num_steps;
 	/* uint32_t *eccpos = chip->ecc.layout->eccpos, page; */
@@ -1101,7 +1101,6 @@ static int cs752x_nand_read_subpage(struct mtd_info *mtd,
 	/* int data_col_addr, i, gaps = 0; */
 	int datafrag_len;
 	/* int busw = (chip->options & NAND_BUSWIDTH_16) ? 2 : 1; */
-	uint32_t page;
 
 	/* Column address wihin the page aligned to ECC size (256bytes). */
 	start_step = data_offs / chip->ecc.size;
@@ -1114,7 +1113,7 @@ static int cs752x_nand_read_subpage(struct mtd_info *mtd,
 	page = g_nand_page;
 	chip->pagebuf = -1;
 	/* chip->ecc.read_page(mtd, chip, chip->buffers->databuf, (page<<this->page_shift)); */
-	chip->ecc.read_page(mtd, chip, chip->buffers->databuf, page);
+	chip->ecc.read_page(mtd, chip, chip->buffers->databuf, false, page);
 
 	memcpy(bufpoi, chip->buffers->databuf + data_offs, datafrag_len);
 
@@ -1393,10 +1392,9 @@ static void reset_ecc_bch_registers( void )
  *
  * Not for syndrome calculating ecc controllers, which use a special oob layout
  */
-static void cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
-				const uint8_t *buf)
+static int cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
+				const uint8_t *buf, int oob_required, int page)
 {
-	int page;
 	uint32_t addr;
 	u32 ul_cmd;
 	u32 ul_addr1;
@@ -1421,9 +1419,9 @@ static void cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *c
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
 #endif
-
 	nf_cnt.wrd = 0;
-	nf_cnt.bf.nflashRegOobCount = mtd->oobsize - 1;
+	if (oob_required)
+		nf_cnt.bf.nflashRegOobCount = mtd->oobsize - 1;
 	nf_cnt.bf.nflashRegDataCount = mtd->writesize - 1;
 
 	if (chip->chipsize < (32 * SZ_1M)) {
@@ -1496,16 +1494,18 @@ out_copy_done:
 	rx_desc[dma_rxq5_rptr.bf.index].word0.bf.buf_size = mtd->writesize;
 	rx_desc[dma_rxq5_rptr.bf.index].buf_adr = addr;
 
-	/*
-	 * build oob rx desc
-	 */
-	addr = (unsigned int *)((unsigned int)addr + mtd->writesize);
-	/* printk("  oob : addr(%p)  chip->oob_poi(%p) \n",addr, chip->oob_poi); */
+	if (oob_required) {
+		/*
+		 * build oob rx desc
+		 */
+		addr = (unsigned int *)((unsigned int)addr + mtd->writesize);
+		/* printk("  oob : addr(%p)  chip->oob_poi(%p) \n",addr, chip->oob_poi); */
 
-	dma_rxq5_rptr.bf.index = (dma_rxq5_rptr.bf.index + 1) % FDMA_DESC_NUM;
-	rx_desc[dma_rxq5_rptr.bf.index].word0.bf.own = OWN_DMA;
-	rx_desc[dma_rxq5_rptr.bf.index].word0.bf.buf_size = mtd->oobsize;
-	rx_desc[dma_rxq5_rptr.bf.index].buf_adr = addr;
+		dma_rxq5_rptr.bf.index = (dma_rxq5_rptr.bf.index + 1) % FDMA_DESC_NUM;
+		rx_desc[dma_rxq5_rptr.bf.index].word0.bf.own = OWN_DMA;
+		rx_desc[dma_rxq5_rptr.bf.index].word0.bf.buf_size = mtd->oobsize;
+		rx_desc[dma_rxq5_rptr.bf.index].buf_adr = addr;
+	}
 
 	wmb();
 	dummy = rx_desc[dma_rxq5_rptr.bf.index].word0.wrd;
@@ -1513,6 +1513,7 @@ out_copy_done:
 	/* update page tx write ptr */
 	dma_txq5_wptr.bf.index = (dma_txq5_wptr.bf.index + 1) % FDMA_DESC_NUM;
 	dma_writel(DMA_DMA_SSP_TXQ5_WPTR, dma_txq5_wptr.wrd);
+
 	/* set axi_bus_len = 8 */
 	/* set fifo control */
 	fifo_ctl.wrd = 0;
@@ -1529,8 +1530,6 @@ out_copy_done:
 	dma_writel(DMA_DMA_SSP_TXQ5_CONTROL, dma_txq5_ctrl.wrd);
 #endif	/* CSW_USE_DMA */
 
-	/********************* OOB stage *********************/
-
 #ifdef CSW_USE_DMA
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	while (!dma_ssp_rxq5_intsts.bf.rxq5_eof) {
@@ -1539,6 +1538,7 @@ out_copy_done:
 		dma_ssp_rxq5_intsts.wrd =
 		    dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	}
+
 	dma_ssp_txq5_intsts.wrd = dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	while (!dma_ssp_txq5_intsts.bf.txq5_eof) {
 		udelay(1);
@@ -1546,11 +1546,15 @@ out_copy_done:
 		dma_ssp_txq5_intsts.wrd =
 		    dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	}
+
 	/* clr tx/rx eof */
 	dma_ssp_txq5_intsts.wrd = dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_TXQ5_INTERRUPT, dma_ssp_txq5_intsts.wrd);
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
+
+	if (!oob_required)
+		goto l_skip_oob_stage;
 
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 	/* jenfeng clear erase tag */
@@ -1605,6 +1609,8 @@ out_copy_done:
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
 
+  l_skip_oob_stage:;
+
 	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
 	 * length is 64 bytes. --> for vmalloc not kmalloc
 	 */
@@ -1619,13 +1625,18 @@ out_copy_done:
 #else	/* CSW_USE_DMA */
 
 	do_pio_write_buf((void*)buf, mtd->writesize);
-	do_pio_write_buf(chip->oob_poi, mtd->oobsize);
+	if (oob_required)
+		do_pio_write_buf(chip->oob_poi, mtd->oobsize);
 
 #endif	/* CSW_USE_DMA */
+
+	return 0;
 }
 
+/*
+ */
 static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
-			      uint8_t *buf, int page)
+			      uint8_t *buf, int oob_required, int page)
 {
 	unsigned int addr;
 	u32 ul_cmd;
@@ -1649,7 +1660,8 @@ static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 
 	/* for indirect access with DMA, because DMA not ready  */
 	nf_cnt.wrd = 0;
-	nf_cnt.bf.nflashRegOobCount = mtd->oobsize - 1;
+	if (oob_required)
+		nf_cnt.bf.nflashRegOobCount = mtd->oobsize - 1;
 	nf_cnt.bf.nflashRegDataCount = mtd->writesize - 1;
 
 	if (chip->chipsize < SZ_32M) {
@@ -1784,6 +1796,11 @@ out_copy_done:
 		vaddr = 0;
 	}
 
+	/******************************************************/
+
+	if (!oob_required)
+		goto l_skip_oob_stage;
+
 	/* oob tx desc */
 	//dma_txq5_wptr.bf.index = (dma_txq5_wptr.bf.index + 1) % FDMA_DESC_NUM;
 
@@ -1844,10 +1861,13 @@ out_copy_done:
 	dma_map_single(NULL, (void *)chip->oob_poi, mtd->oobsize, DMA_FROM_DEVICE);
 	wmb();
 
+  l_skip_oob_stage:;
+
 #else	/* CSW_USE_DMA */
 
 	do_pio_read_buf(buf, mtd->writesize);
-	do_pio_read_buf(chip->oob_poi, mtd->oobsize);
+	if (oob_required)
+		do_pio_read_buf(chip->oob_poi, mtd->oobsize);
 
 #endif	/* CSW_USE_DMA */
 
@@ -1864,7 +1884,7 @@ out_copy_done:
  * Not for syndrome calculating ecc controllers, which use a special oob layout
  */
 static int cs752x_nand_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
-			      uint8_t *buf, int page)
+			      uint8_t *buf, int oob_required, int page)
 {
 	check_flash_ctrl_status();
 
@@ -1886,7 +1906,7 @@ static int cs752x_nand_read_page_raw(struct mtd_info *mtd, struct nand_chip *chi
 	ecc_ctl.wrd = 0;
 	fl_writel(FLASH_NF_ECC_CONTROL, ecc_ctl.wrd);
 
-	return cs752x_nand_read_page(mtd, chip, buf, page);
+	return cs752x_nand_read_page(mtd, chip, buf, oob_required, page);
 }
 
 
@@ -2086,10 +2106,10 @@ static void configure_hwecc_reg(int is_write)
  * @chip:	nand chip info structure
  * @buf:	data buffer
  */
-static void cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
-				  const uint8_t *buf)
+static int cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
+				  const uint8_t *buf, int oob_required, int page)
 {
-	int page, col;
+	int col;
 	uint32_t addr;
 	u32	ul_cmd;
 	u32	ul_addr1;
@@ -2113,7 +2133,6 @@ static void cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip 
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
 #endif
-
 	configure_hwecc_reg( true );
 
 	nf_cnt.wrd = 0;
@@ -2205,13 +2224,6 @@ out_copy_done:
 	dma_writel(DMA_DMA_SSP_TXQ5_CONTROL, dma_txq5_ctrl.wrd);
 
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
-	/**
-	if(dma_ssp_rxq5_intsts.bf.rxq5_full)
-	{
-		printk("rxq5_full \n");
-		while(1);
-	}
-	**/
 	while (!dma_ssp_rxq5_intsts.bf.rxq5_eof) {
 		udelay(1);
 		schedule();
@@ -2338,6 +2350,8 @@ out_copy_done:
 	do_pio_write_buf(chip->oob_poi, mtd->oobsize);
 
 #endif
+
+	return 0;
 }
 
 
@@ -2351,7 +2365,7 @@ out_copy_done:
  * Not for syndrome calculating ecc controllers which need a special oob layout
  */
 static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
-				uint8_t *buf, int page)
+				uint8_t *buf, int oob_required, int page)
 {
 	int  col;
 	uint8_t *p = buf;
@@ -2368,7 +2382,7 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 
 	configure_hwecc_reg( false );
 
-	cs752x_nand_read_page( mtd, chip, buf, page);
+	cs752x_nand_read_page(mtd, chip, buf, oob_required, page);
 
 #if defined( CONFIG_CS752X_NAND_ECC_HW_BCH )
 	bch_sts.wrd=fl_readl(FLASH_NF_BCH_STATUS);
@@ -2513,16 +2527,17 @@ BCH_EXIT:
  * @raw:	use _raw version of write_page
  */
 static int cs752x_nand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
-			   const uint8_t *buf, int page, int cached, int raw)
+			uint32_t offset, int data_len, const uint8_t *buf,
+			int oob_required, int page, int cached, int raw)
 {
 	int status;
 
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, 0x00, page);
 
 	if (unlikely(raw))
-		chip->ecc.write_page_raw(mtd, chip, buf);
+		chip->ecc.write_page_raw(mtd, chip, buf, oob_required, page);
 	else
-		chip->ecc.write_page(mtd, chip, buf);
+		chip->ecc.write_page(mtd, chip, buf, oob_required, page);
 
 	/*
 	 * Cached progamming disabled for now, Not sure if its worth the
@@ -2665,6 +2680,7 @@ static int cs752x_configure_for_chip(struct mtd_info *mtd)
 	return err;
 }
 
+#ifdef NO_NEED
 /**
  * cs752x_nand_verify_buf - [DEFAULT] Verify chip data against buffer
  * @mtd:	MTD device structure
@@ -2711,6 +2727,7 @@ static int cs752x_nand_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int 
 
 	return 0;
 }
+#endif	/* NO_NEED */
 
 /**
  * cs752x_nand_read_buf - [DEFAULT] read chip data into buffer
@@ -2722,9 +2739,6 @@ static int cs752x_nand_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int 
  */
 static void cs752x_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 {
-	int page, col;
-	struct nand_chip *this = mtd->priv;
-
 	if (cs752x_host->buf_data_len > 0) {
 		int len2;
 		len2 = min_t(int, cs752x_host->buf_data_len, len);
@@ -2732,13 +2746,24 @@ static void cs752x_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 		return;
 	}
 
+#ifdef NOT_YET	/* may not use this */
 	if (len <= (mtd->writesize + mtd->oobsize)) {
+		struct nand_chip *this = mtd->priv;
+		int page;
+		int col;
+#if 1	/* FIX ME */
+		int oob_required = false;
+#endif
 		page = g_nand_page;
 		col = g_nand_col;
 
-		this->ecc.read_page(mtd, this, this->buffers->databuf, page);
+		this->ecc.read_page(mtd, this, this->buffers->databuf, oob_required, page);
 		memcpy(buf, &(this->buffers->databuf[col]), len);
 	}
+#else
+	/* must not reach here */
+	BUG();
+#endif
 }
 
 /**
@@ -2751,6 +2776,7 @@ static void cs752x_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
  */
 static void cs752x_nand_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
+#ifdef NOT_YET	/* may not use this */
 	int i, page = 0, col = 0;
 	struct nand_chip *chip = mtd->priv;
 	size_t retlen;
@@ -2768,6 +2794,10 @@ static void cs752x_nand_write_buf(struct mtd_info *mtd, const uint8_t *buf, int 
 
 		chip->ecc.write_page(mtd, chip, chip->buffers->databuf);
 	}
+#else
+	/* must not reach here */
+	BUG();
+#endif
 }
 
 /**
@@ -2778,10 +2808,12 @@ static void cs752x_nand_write_buf(struct mtd_info *mtd, const uint8_t *buf, int 
  */
 static uint8_t cs752x_nand_read_byte(struct mtd_info *mtd)
 {
-	unsigned int data = 0;
+	unsigned int data;
+#ifdef NOT_YET
+	struct nand_chip *chip = mtd->priv;
 	unsigned int page = 0;
 	unsigned int col = 0;
-	struct nand_chip *chip = mtd->priv;
+#endif
 
 	/* for result of NAND_CMD_STATUS */
 	if (cs752x_host->flag_status_req)
@@ -2795,6 +2827,7 @@ static uint8_t cs752x_nand_read_byte(struct mtd_info *mtd)
 		return data;
 	}
 
+#ifdef NOT_YET
 	page = g_nand_page;
 	col = g_nand_col;
 	chip->pagebuf = -1;
@@ -2802,6 +2835,11 @@ static uint8_t cs752x_nand_read_byte(struct mtd_info *mtd)
 	data = *(chip->buffers->databuf + col);
 
 	return data & 0xff;
+#else
+	/* must not reach here */
+	BUG();
+	return 0xFF;
+#endif
 }
 
 static void  clear_command_cache(void)
@@ -3275,7 +3313,7 @@ static int init_DMA_SSP( void )
 /*
  * Probe for the NAND device.
  */
-static int __devinit cs752x_nand_probe(struct platform_device *pdev)
+static int __init cs752x_nand_probe(struct platform_device *pdev)
 {
 	struct nand_chip *this;
 	struct resource *r;
@@ -3371,7 +3409,9 @@ static int __devinit cs752x_nand_probe(struct platform_device *pdev)
 #endif
 	this->write_buf		= cs752x_nand_write_buf;
 	this->read_buf		= cs752x_nand_read_buf;
+#ifdef NO_NEED
 	this->verify_buf	= cs752x_nand_verify_buf;
+#endif
 
 	/* set the bad block tables to support debugging */
 	this->bbt_td = &cs752x_bbt_main_descr;
@@ -3389,8 +3429,8 @@ static int __devinit cs752x_nand_probe(struct platform_device *pdev)
 		goto err_scan;
 
 #ifdef	NAND_ECC_TEST
-	tw = (unsigned char*)(u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL);
-	tr = (unsigned char*)(u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL);
+	tw = (unsigned char*)((u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL));
+	tr = (unsigned char*)((u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL));
 	if ((tw == NULL) || (tr == NULL))
 		goto err_scan;
 #endif
@@ -3442,7 +3482,7 @@ static int __devinit cs752x_nand_probe(struct platform_device *pdev)
 /*
  * Remove a NAND device.
  */
-static int __devexit cs752x_nand_remove(struct platform_device *pdev)
+static int __exit cs752x_nand_remove(struct platform_device *pdev)
 {
 	struct cs752x_nand_host *cs752x_host = platform_get_drvdata(pdev);
 
@@ -3469,8 +3509,6 @@ static struct platform_driver cs752x_nand_driver = {
 	.driver.owner	= THIS_MODULE,
 	.probe		= cs752x_nand_probe,
 	.remove		= cs752x_nand_remove,
-	/* .suspend	= cs752x_nand_suspend, */
-	/* .resume	= cs752x_nand_resume, */
 };
 
 
