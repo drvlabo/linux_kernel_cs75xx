@@ -93,6 +93,7 @@ static int		g_nand_col = 0;
 static volatile int	dummy;
 static u32		nflash_type = 0x5000;
 
+#ifdef NOT_YET
 static struct nand_ecclayout cs752x_nand_ecclayout;
 
 /* Define default oob placement schemes for large and small page devices */
@@ -128,6 +129,7 @@ static struct nand_ecclayout cs752x_nand_oob_16 = {
 };
 
 #endif	/* CONFIG_CS752X_NAND_ECC_HW_BCH */
+#endif	/* NOT_YET */
 
 
 /* Generic flash bbt decriptors
@@ -328,6 +330,7 @@ typedef volatile union {
   u_int32_t     wrd ;
 } FLASH_NF_ECC_RESET_t;
 
+#define	NF_RESET	0x1
 #define	ECC_CLR		0x1
 #define	FIFO_CLR	0x1
 
@@ -430,20 +433,20 @@ static FLASH_NF_BCH_CONTROL_t		bch_ctrl;
 
 typedef volatile union {
   struct {
-    cs_uint32 rx_dma_enable        :  1 ; /* bits 0:0 */
-    cs_uint32 rx_check_own         :  1 ; /* bits 1:1 */
-    cs_uint32 rsrvd1               : 30 ;
+    u32 rx_dma_enable        :  1 ; /* bits 0:0 */
+    u32 rx_check_own         :  1 ; /* bits 1:1 */
+    u32 rsrvd1               : 30 ;
   } bf ;
-  cs_uint32     wrd ;
+  u32     wrd ;
 } DMA_DMA_SSP_RXDMA_CONTROL_t;
 
 typedef volatile union {
   struct {
-    cs_uint32 tx_dma_enable        :  1 ; /* bits 0:0 */
-    cs_uint32 tx_check_own         :  1 ; /* bits 1:1 */
-    cs_uint32 rsrvd1               : 30 ;
+    u32 tx_dma_enable        :  1 ; /* bits 0:0 */
+    u32 tx_check_own         :  1 ; /* bits 1:1 */
+    u32 rsrvd1               : 30 ;
   } bf ;
-  cs_uint32     wrd ;
+  u32     wrd ;
 } DMA_DMA_SSP_TXDMA_CONTROL_t;
 
 typedef volatile union {
@@ -458,10 +461,10 @@ typedef volatile union {
 
 typedef volatile union {
   struct {
-    cs_uint32 depth                :  4 ; /* bits 3:0 */
-    cs_uint32 base                 : 28 ; /* bits 31:4 */
+    u32 depth                :  4 ; /* bits 3:0 */
+    u32 base                 : 28 ; /* bits 31:4 */
   } bf ;
-  cs_uint32     wrd ;
+  u32     wrd ;
 } DMA_DMA_SSP_RXQ5_BASE_DEPTH_t;
 
 typedef volatile union {
@@ -482,10 +485,10 @@ typedef volatile union {
 
 typedef volatile union {
   struct {
-    cs_uint32 depth                :  4 ; /* bits 3:0 */
-    cs_uint32 base                 : 28 ; /* bits 31:4 */
+    u32 depth                :  4 ; /* bits 3:0 */
+    u32 base                 : 28 ; /* bits 31:4 */
   } bf ;
-  cs_uint32     wrd ;
+  u32     wrd ;
 } DMA_DMA_SSP_TXQ5_BASE_DEPTH_t;
 
 typedef volatile union {
@@ -585,15 +588,10 @@ static int cs752x_nand_dev_ready(struct mtd_info *mtd);
 
 
 #ifdef	NAND_ECC_TEST
-unsigned char tw[NAND_MAX_PAGESIZE]__attribute__((aligned(16))) ,  tr[NAND_MAX_PAGESIZE]__attribute__((aligned(16))); ;
+unsigned char	*tw;
+unsigned char	*tr;
 unsigned int eccdata;
 unsigned char eccode[32]__attribute__((aligned(16)));
-
-
-inline static u32 mk_nf_command(u8 cmd0, u8 cmd1, u8 cmd2)
-{
-	return ((u32)cmd2 << 16) | ((u32)cmd1 << 8) | cmd0;
-}
 
 void cs752x_ecc_check_enable( int isEnable)
 {
@@ -1018,6 +1016,11 @@ static void check_flash_ctrl_status(void)
 	} while (time_before(jiffies, timeo));
 
 	printk("FLASH_STATUS ERROR: %x\n", val);
+}
+
+inline static u32 mk_nf_command(u8 cmd0, u8 cmd1, u8 cmd2)
+{
+	return ((u32)cmd2 << 16) | ((u32)cmd1 << 8) | cmd0;
 }
 
 /**
@@ -1483,7 +1486,7 @@ out_copy_done:
 #endif	/* CSW_USE_DMA */
 
 #ifdef	NAND_ECC_TEST
-	memset(tw, 0, NAND_MAX_PAGESIZE);
+	memset(tw, 0, mtd->writesize);
 	memcpy(tw, buf, mtd->writesize);
 #endif
 
@@ -2170,7 +2173,7 @@ out_copy_done:
 #endif	/* CSW_USE_DMA */
 
 #ifdef	NAND_ECC_TEST
-	memset(tw, 0, NAND_MAX_PAGESIZE);
+	memset(tw, 0, mtd->writesize);
 	memcpy(tw, buf, mtd->writesize);
 #endif
 
@@ -2388,7 +2391,7 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 #endif
 
 #ifdef	NAND_ECC_TEST
-	memset(tr , 0, NAND_MAX_PAGESIZE);
+	memset(tr , 0, mtd->writesize);
 	memcpy(tr, buf, mtd->writesize);
 #endif
 
@@ -3384,12 +3387,24 @@ static int __devinit cs752x_nand_probe(struct platform_device *pdev)
 	err = nand_scan_ident(mtd, 1, NULL);
 	if (err)
 		goto err_scan;
+
+#ifdef	NAND_ECC_TEST
+	tw = (unsigned char*)(u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL);
+	tr = (unsigned char*)(u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL);
+	if ((tw == NULL) || (tr == NULL))
+		goto err_scan;
+#endif
+
 	err = cs752x_configure_for_chip(mtd);
 	if (err)
 		goto err_scan;
 	err = nand_scan_tail(mtd);
 	if (err)
 		goto err_scan;
+
+
+#ifdef	NAND_ECC_TEST
+#endif
 
 	/* Register the partitions */
 
