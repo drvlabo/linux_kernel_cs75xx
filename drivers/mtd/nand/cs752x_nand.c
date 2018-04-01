@@ -23,6 +23,7 @@
  */
 
 
+#include <linux/kernel.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -67,6 +68,12 @@ struct cs752x_nand_host {
 	struct mtd_info		*mtd;
 	struct device		*dev;
 
+	void __iomem*		iobase_fl;
+#ifdef CSW_USE_DMA
+	void __iomem*		iobase_dma_ssp;
+	u32			dma_phy_base;
+#endif
+
 	/* NAND command and parameter caching, before submitting */
 	unsigned int		cmd_array[CS75XX_CMD_MAX_NUM];
 	unsigned int		cmd_cnt;
@@ -85,12 +92,6 @@ static int		g_nand_page = 0;
 static int		g_nand_col = 0;
 static volatile int	dummy;
 static u32		nflash_type = 0x5000;
-
-static void __iomem*	g_iobase_fl	= (void __iomem*)IO_ADDRESS(FLASH_ID);
-#ifdef CSW_USE_DMA
-static void __iomem*	g_iobase_dma_ssp= (void __iomem*)IO_ADDRESS(DMA_DMA_SSP_RXDMA_CONTROL);
-#endif
-
 
 static struct nand_ecclayout cs752x_nand_ecclayout;
 
@@ -155,10 +156,249 @@ static struct nand_bbt_descr cs752x_bbt_mirror_descr = {
 };
 
 static unsigned int CHIP_EN;
-static FLASH_TYPE_t			flash_type;
+
+#define FLASH_ID		0xf0050000
+#define FLASH_TYPE		0xf005000c
+#define FLASH_STATUS		0xf0050008
+#define FLASH_NF_ACCESS		0xf0050028
+#define FLASH_NF_COUNT		0xf005002c
+#define FLASH_NF_COMMAND	0xf0050030
+#define FLASH_NF_ADDRESS_1	0xf0050034
+#define FLASH_NF_ADDRESS_2	0xf0050038
+#define FLASH_NF_DATA		0xf005003c
+#define FLASH_NF_ECC_STATUS	0xf0050044
+#define FLASH_NF_ECC_CONTROL	0xf0050048
+#define FLASH_NF_ECC_OOB	0xf005004c
+#define FLASH_NF_ECC_GEN0	0xf0050050
+#define FLASH_NF_ECC_GEN1	0xf0050054
+#define FLASH_NF_FIFO_CONTROL	0xf0050090
+#define FLASH_FLASH_ACCESS_START 0xf00500a4
+#define FLASH_NF_ECC_RESET	0xf00500a8
+#define FLASH_FLASH_INTERRUPT	0xf00500ac
+#define FLASH_NF_BCH_STATUS	0xf00500b4
+#define FLASH_NF_BCH_ERROR_LOC01 0xf00500b8
+#define FLASH_NF_BCH_CONTROL	0xf00500d0
+#define FLASH_NF_BCH_OOB0	0xf00500d4
+#define FLASH_NF_BCH_GEN0_0	0xf00500e8
+#define FLASH_NF_BCH_GEN0_1	0xf00500ec
+#define FLASH_NF_BCH_GEN1_0	0xf00500fc
+
+typedef volatile union {
+  struct {
+    u32 rsrvd1               :  9 ;
+    u32 flashSize            :  2 ; /* bits 10:9 */
+    u32 flashWidth           :  1 ; /* bits 11:11 */
+    u32 flashType            :  3 ; /* bits 14:12 */
+    u32 flashPin             :  1 ; /* bits 15:15 */
+    u32 rsrvd2               : 16 ;
+  } bf ;
+  u32     wrd ;
+} FLASH_TYPE_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t nflashExtAddr	:  8 ; /* bits 7:0 */
+    u_int32_t rsrvd1	       :  2 ;
+    u_int32_t nflashRegWidth       :  2 ; /* bits 11:10 */
+    u_int32_t rsrvd2	       :  3 ;
+    u_int32_t nflashCeAlt	  :  1 ; /* bits 15:15 */
+    u_int32_t autoReset	    :  1 ; /* bits 16:16 */
+    u_int32_t rsrvd3	       :  7 ;
+    u_int32_t FIFO_RDTH	    :  2 ; /* bits 25:24 */
+    u_int32_t FIFO_WRTH	    :  2 ; /* bits 27:26 */
+    u_int32_t rsrvd4	       :  4 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_ACCESS_t;
+
+#define	NFLASH_WiDTH8	0x0
+#define	NFLASH_WiDTH16	0x1
+#define	NFLASH_WiDTH32	0x2
+
+#define NFLASH_CHIP0_EN	0x0
+#define NFLASH_CHIP1_EN	0x1
+
+typedef volatile union {
+  struct {
+    u_int32_t nflashRegCmdCount    :  2 ; /* bits 1:0 */
+    u_int32_t rsrvd1	       :  2 ;
+    u_int32_t nflashRegAddrCount   :  3 ; /* bits 6:4 */
+    u_int32_t rsrvd2	       :  1 ;
+    u_int32_t nflashRegDataCount   : 14 ; /* bits 21:8 */
+    u_int32_t nflashRegOobCount    : 10 ; /* bits 31:22 */
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_COUNT_t;
+
+#define	NCNT_EMPTY_OOB  0x3FF
+#define	NCNT_512P_OOB   0x0F
+#define	NCNT_2kP_OOB    0x3F
+#define	NCNT_4kP_OOB    0x7F
+#define	NCNT_M4kP_OOB   0xdF
+#define	NCNT_EMPTY_DATA 0x3FFF
+#define	NCNT_512P_DATA  0x1FF
+#define	NCNT_2kP_DATA   0x7FF
+#define	NCNT_4kP_DATA   0xFFF
+#define	NCNT_DATA_1    	0x0
+#define	NCNT_DATA_2    	0x1
+#define	NCNT_DATA_3    	0x2
+#define	NCNT_DATA_4    	0x3
+#define	NCNT_DATA_5    	0x4
+#define	NCNT_DATA_6    	0x5
+#define	NCNT_DATA_7    	0x6
+#define	NCNT_DATA_8    	0x7
+
+#define	NCNT_EMPTY_ADDR	0x7
+#define	NCNT_ADDR_5	0x4
+#define	NCNT_ADDR_4	0x3
+#define	NCNT_ADDR_3	0x2
+#define	NCNT_ADDR_2	0x1
+#define	NCNT_ADDR_1	0x0
+#define	NCNT_EMPTY_CMD  0x3
+#define	NCNT_CMD_3    	0x2
+#define	NCNT_CMD_2    	0x1
+#define	NCNT_CMD_1    	0x0
+
+typedef volatile union {
+  struct {
+    u_int32_t eccStatus	    :  2 ; /* bits 1:0 */
+    u_int32_t rsrvd1	       :  1 ;
+    u_int32_t eccErrBit	    :  4 ; /* bits 6:3 */
+    u_int32_t eccErrByte	   :  9 ; /* bits 15:7 */
+    u_int32_t eccErrWord	   :  8 ; /* bits 23:16 */
+    u_int32_t rsrvd2	       :  7 ;
+    u_int32_t eccDone	      :  1 ; /* bits 31:31 */
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_ECC_STATUS_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t rsrvd1	       :  1 ;
+    u_int32_t eccGenMode	   :  1 ; /* bits 1:1 */
+    u_int32_t rsrvd2	       :  2 ;
+    u_int32_t eccCodeSel	   :  4 ; /* bits 7:4 */
+    u_int32_t eccEn		:  1 ; /* bits 8:8 */
+    u_int32_t rsrvd3	       : 23 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_ECC_CONTROL_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t eccCodeOob	   : 32 ; /* bits 31:0 */
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_ECC_OOB_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t fifoCmd	      :  2 ; /* bits 1:0 */
+    u_int32_t rsrvd1	       :  2 ;
+    u_int32_t fifoDbgSel	   :  4 ; /* bits 7:4 */
+    u_int32_t rsrvd2	       : 24 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_FIFO_CONTROL_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t nflashRegReq	 :  1 ; /* bits 0:0 */
+    u_int32_t sflashRegReq	 :  1 ; /* bits 1:1 */
+    u_int32_t fifoReq	      :  1 ; /* bits 2:2 */
+    u_int32_t rsrvd1	       :  9 ;
+    u_int32_t nflashRegCmd	 :  2 ; /* bits 13:12 */
+    u_int32_t rsrvd2	       : 18 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_FLASH_ACCESS_START_t;
+
+#define	FLASH_GO	0x1
+
+#define	FLASH_RD	0x2
+#define	FLASH_WT	0x3
+
+typedef volatile union {
+  struct {
+    u_int32_t eccClear	     :  1 ; /* bits 0:0 */
+    u_int32_t fifoClear	    :  1 ; /* bits 1:1 */
+    u_int32_t nflash_reset	 :  1 ; /* bits 2:2 */
+    u_int32_t rsrvd1	       : 29 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_ECC_RESET_t;
+
+#define	ECC_CLR		0x1
+#define	FIFO_CLR	0x1
+
+typedef volatile union {
+  struct {
+    u_int32_t regIrq	       :  1 ; /* bits 0:0 */
+    u_int32_t fifoIrq	      :  1 ; /* bits 1:1 */
+    u_int32_t f_addr_err	   :  1 ; /* bits 2:2 */
+    u_int32_t eccIrq	       :  1 ; /* bits 3:3 */
+    u_int32_t nfWdtIrq	     :  1 ; /* bits 4:4 */
+    u_int32_t rsrvd1	       :  1 ;
+    u_int32_t bchGenIrq	    :  1 ; /* bits 6:6 */
+    u_int32_t bchDecIrq	    :  1 ; /* bits 7:7 */
+    u_int32_t rsrvd2	       : 24 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_FLASH_INTERRUPT_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t bchDecStatus	 :  2 ; /* bits 1:0 */
+    u_int32_t rsrvd1	       :  2 ;
+    u_int32_t bchErrNum	    :  4 ; /* bits 7:4 */
+    u_int32_t rsrvd2	       : 22 ;
+    u_int32_t bchDecDone	   :  1 ; /* bits 30:30 */
+    u_int32_t bchGenDone	   :  1 ; /* bits 31:31 */
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_BCH_STATUS_t;
+
+#define	BCH_UNCORRECTABLE	0x3
+#define	BCH_CORRECTABLE_ERR	0x2
+#define	BCH_NO_ERR		0x1
+
+typedef volatile union {
+  struct {
+    u_int32_t bchErrLoc0	   : 13 ; /* bits 12:0 */
+    u_int32_t rsrvd1	       :  3 ;
+    u_int32_t bchErrLoc1	   : 13 ; /* bits 28:16 */
+    u_int32_t rsrvd2	       :  3 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_BCH_ERROR_LOC01_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t bchCompare	   :  1 ; /* bits 0:0 */
+    u_int32_t bchOpcode	    :  1 ; /* bits 1:1 */
+    u_int32_t rsrvd1	       :  2 ;
+    u_int32_t bchCodeSel	   :  4 ; /* bits 7:4 */
+    u_int32_t bchEn		:  1 ; /* bits 8:8 */
+    u_int32_t bchErrCap	    :  1 ; /* bits 9:9 */
+    u_int32_t rsrvd2	       :  6 ;
+    u_int32_t bchTestCtrl	  :  4 ; /* bits 19:16 */
+    u_int32_t rsrvd3	       : 12 ;
+  } bf ;
+  u_int32_t     wrd ;
+} FLASH_NF_BCH_CONTROL_t;
+
+#define	BCH_ENABLE	0x01
+#define	BCH_DISABLE	0x00
+
+#define	BCH_DECODE	0x01
+#define	BCH_ENCODE	0x00
+
+#define BCH_ERR_CAP_8_512	0x0
+#define BCH_ERR_CAP_12_512	0x1
 
 #define	FLASH_STATUS_MASK_nState	(0x0FUL << 8)
 
+static FLASH_TYPE_t			flash_type;
 static FLASH_NF_ACCESS_t		nf_access;
 static FLASH_NF_COUNT_t			nf_cnt;
 static FLASH_NF_ECC_STATUS_t		ecc_sts;
@@ -174,16 +414,167 @@ static FLASH_NF_BCH_CONTROL_t		bch_ctrl;
 
 
 #ifdef CSW_USE_DMA
+
 /* DMA regs */
-static DMA_DMA_SSP_TXQ5_CONTROL_t 			dma_txq5_ctrl;
-static DMA_DMA_SSP_RXQ5_WPTR_t				dma_rxq5_wptr;
-static DMA_DMA_SSP_RXQ5_RPTR_t				dma_rxq5_rptr;
-static DMA_DMA_SSP_TXQ5_WPTR_t				dma_txq5_wptr;
-static DMA_DMA_SSP_TXQ5_RPTR_t				dma_txq5_rptr;
-static DMA_DMA_SSP_RXQ5_INTERRUPT_t		dma_ssp_rxq5_intsts;
-static DMA_DMA_SSP_TXQ5_INTERRUPT_t		dma_ssp_txq5_intsts;
+#define DMA_DMA_SSP_RXDMA_CONTROL	0xf0090400
+#define DMA_DMA_SSP_TXDMA_CONTROL	0xf0090404
+#define DMA_DMA_SSP_TXQ5_CONTROL	0xf0090414
+#define DMA_DMA_SSP_RXQ5_BASE_DEPTH	0xf0090438
+#define DMA_DMA_SSP_RXQ5_WPTR		0xf0090444
+#define DMA_DMA_SSP_RXQ5_RPTR		0xf0090448
+#define DMA_DMA_SSP_TXQ5_BASE_DEPTH	0xf009045c
+#define DMA_DMA_SSP_TXQ5_WPTR		0xf0090468
+#define DMA_DMA_SSP_TXQ5_RPTR		0xf009046c
+#define DMA_DMA_SSP_RXQ5_INTERRUPT	0xf00904c8
+#define DMA_DMA_SSP_TXQ5_INTERRUPT	0xf00904e0
+
+typedef volatile union {
+  struct {
+    cs_uint32 rx_dma_enable        :  1 ; /* bits 0:0 */
+    cs_uint32 rx_check_own         :  1 ; /* bits 1:1 */
+    cs_uint32 rsrvd1               : 30 ;
+  } bf ;
+  cs_uint32     wrd ;
+} DMA_DMA_SSP_RXDMA_CONTROL_t;
+
+typedef volatile union {
+  struct {
+    cs_uint32 tx_dma_enable        :  1 ; /* bits 0:0 */
+    cs_uint32 tx_check_own         :  1 ; /* bits 1:1 */
+    cs_uint32 rsrvd1               : 30 ;
+  } bf ;
+  cs_uint32     wrd ;
+} DMA_DMA_SSP_TXDMA_CONTROL_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t txq5_en	      :  1 ; /* bits 0:0 */
+    u_int32_t rsrvd1	       :  1 ;
+    u_int32_t txq5_flush_en	:  1 ; /* bits 2:2 */
+    u_int32_t rsrvd2	       : 29 ;
+  } bf ;
+  u_int32_t     wrd ;
+} DMA_DMA_SSP_TXQ5_CONTROL_t;
+
+typedef volatile union {
+  struct {
+    cs_uint32 depth                :  4 ; /* bits 3:0 */
+    cs_uint32 base                 : 28 ; /* bits 31:4 */
+  } bf ;
+  cs_uint32     wrd ;
+} DMA_DMA_SSP_RXQ5_BASE_DEPTH_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t index		: 13 ; /* bits 12:0 */
+    u_int32_t rsrvd1	       : 19 ;
+  } bf ;
+  u_int32_t     wrd ;
+} DMA_DMA_SSP_RXQ5_WPTR_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t index		: 13 ; /* bits 12:0 */
+    u_int32_t rsrvd1	       : 19 ;
+  } bf ;
+  u_int32_t     wrd ;
+} DMA_DMA_SSP_RXQ5_RPTR_t;
+
+typedef volatile union {
+  struct {
+    cs_uint32 depth                :  4 ; /* bits 3:0 */
+    cs_uint32 base                 : 28 ; /* bits 31:4 */
+  } bf ;
+  cs_uint32     wrd ;
+} DMA_DMA_SSP_TXQ5_BASE_DEPTH_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t index		: 13 ; /* bits 12:0 */
+    u_int32_t rsrvd1	       : 19 ;
+  } bf ;
+  u_int32_t     wrd ;
+} DMA_DMA_SSP_TXQ5_WPTR_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t index		: 13 ; /* bits 12:0 */
+    u_int32_t rsrvd1	       : 19 ;
+  } bf ;
+  u_int32_t     wrd ;
+} DMA_DMA_SSP_TXQ5_RPTR_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t rxq5_eof	     :  1 ; /* bits 0:0 */
+    u_int32_t rxq5_full	    :  1 ; /* bits 1:1 */
+    u_int32_t rxq5_overrun	 :  1 ; /* bits 2:2 */
+    u_int32_t rxq5_cntmsb	  :  1 ; /* bits 3:3 */
+    u_int32_t rxq5_full_drop_overrun :  1 ; /* bits 4:4 */
+    u_int32_t rxq5_full_drop_cntmsb :  1 ; /* bits 5:5 */
+    u_int32_t rsrvd1	       : 26 ;
+  } bf ;
+  u_int32_t     wrd ;
+} DMA_DMA_SSP_RXQ5_INTERRUPT_t;
+
+typedef volatile union {
+  struct {
+    u_int32_t txq5_eof	     :  1 ; /* bits 0:0 */
+    u_int32_t txq5_empty	   :  1 ; /* bits 1:1 */
+    u_int32_t txq5_overrun	 :  1 ; /* bits 2:2 */
+    u_int32_t txq5_cntmsb	  :  1 ; /* bits 3:3 */
+    u_int32_t rsrvd1	       : 28 ;
+  } bf ;
+  u_int32_t     wrd ;
+} DMA_DMA_SSP_TXQ5_INTERRUPT_t;
+
+typedef struct tx_descriptor_t {
+	union tx_word0_t {
+		struct {
+			u32 buf_size	:  16 ; /* bits 15:0 */
+			u32 desccnt     	:  6 ;  /* bits 21:16 */
+			u32 sgm_rsrvd	:  5 ;  /* bits 26:22 */
+			u32 sof_eof_rsrvd :  2 ;  /* bits 28:27 */
+			u32 cache_rsrvd	:  1 ;  /* bits 29 */
+			u32 share_rsrvd	:  1 ;  /* bits 30 */
+			u32 own		:  1 ;  /* bits 31:31 */
+		} bf ;
+		u32     wrd ;
+	}word0;
+	u32 buf_adr;	/* data buffer address */
+	u32 word2;	/* data buffer address */
+	u32 word3;	/* data buffer address */
+} DMA_SSP_TX_DESC_T;
+
+typedef struct rx_descriptor_t {
+	union rx_word0_t {
+		struct {
+			u32 buf_size    :  16 ; /* bits 15:0 */
+			u32 desccnt     :  6 ;  /* bits 21:16 */
+			u32 rqsts_rsrvd :  7 ;  /* bits 28:22 */
+			u32 cache_rsrvd :  1 ;  /* bits 29 */
+			u32 share_rsrvd :  1 ;  /* bits 30 */
+			u32 own		:  1 ;  /* bits 31 */
+		} bf ;
+		u32     wrd ;
+	}word0;
+	u32 buf_adr;	/* data buffer address */
+	u32 word2;	/* data buffer address */
+	u32 word3;	/* data buffer address */
+} DMA_SSP_RX_DESC_T;
+
+static DMA_DMA_SSP_TXQ5_CONTROL_t 	dma_txq5_ctrl;
+static DMA_DMA_SSP_RXQ5_WPTR_t		dma_rxq5_wptr;
+static DMA_DMA_SSP_RXQ5_RPTR_t		dma_rxq5_rptr;
+static DMA_DMA_SSP_TXQ5_WPTR_t		dma_txq5_wptr;
+static DMA_DMA_SSP_TXQ5_RPTR_t		dma_txq5_rptr;
+static DMA_DMA_SSP_RXQ5_INTERRUPT_t	dma_ssp_rxq5_intsts;
+static DMA_DMA_SSP_TXQ5_INTERRUPT_t	dma_ssp_txq5_intsts;
 static DMA_SSP_TX_DESC_T *tx_desc;
 static DMA_SSP_RX_DESC_T *rx_desc;
+
+#define FDMA_DEPTH	3
+#define FDMA_DESC_NUM	(1 << FDMA_DEPTH) 
 
 #define OWN_DMA	0
 #define OWN_SW	1
@@ -590,26 +981,26 @@ static cs_pm_freq_notifier_t n = {
 inline static u32 dma_readl(u32 reg)
 {
 	reg -= DMA_DMA_SSP_RXDMA_CONTROL;
-	return readl((void __iomem*)(g_iobase_dma_ssp + reg));
+	return readl((void __iomem*)(cs752x_host->iobase_dma_ssp + reg));
 }
 
 inline static void dma_writel(u32 reg, u32 val)
 {
 	reg -= DMA_DMA_SSP_RXDMA_CONTROL;
-	writel(val, (void __iomem*)(g_iobase_dma_ssp + reg));
+	writel(val, (void __iomem*)(cs752x_host->iobase_dma_ssp + reg));
 }
 #endif	/* CSW_USE_DMA */
 
 inline static u32 fl_readl(u32 reg)
 {
 	reg -= FLASH_ID;
-	return readl((void __iomem*)(g_iobase_fl + reg));
+	return readl((void __iomem*)(cs752x_host->iobase_fl + reg));
 }
 
 inline static void fl_writel(u32 reg, u32 val)
 {
 	reg -= FLASH_ID;
-	writel(val, (void __iomem*)(g_iobase_fl + reg));
+	writel(val, (void __iomem*)(cs752x_host->iobase_fl + reg));
 }
 
 
@@ -1057,7 +1448,7 @@ static void cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *c
 	fl_writel(FLASH_NF_ACCESS, nf_access.wrd);
 
 #ifdef CSW_USE_DMA
-	addr = ((page << chip->page_shift) % SZ_128M) + GOLDENGATE_FLASH_BASE;
+	addr = cs752x_host->dma_phy_base + ((page << chip->page_shift) % SZ_128M);
 
 	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
 	 * length is 64 bytes. --> for vmalloc not kmalloc
@@ -1292,7 +1683,7 @@ static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 	nf_access.wrd = fl_readl(FLASH_NF_ACCESS);
 
 #ifdef CSW_USE_DMA
-	addr = (page << chip->page_shift) % SZ_128M + GOLDENGATE_FLASH_BASE;
+	addr = cs752x_host->dma_phy_base + ((page << chip->page_shift) % SZ_128M);
 
 	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
 	 * length is 64 bytes. --> for vmalloc not kmalloc
@@ -1744,7 +2135,7 @@ static void cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip 
 	fl_writel(FLASH_NF_ACCESS, nf_access.wrd);
 
 #ifdef CSW_USE_DMA
-	addr = (page << chip->page_shift) % SZ_128M + GOLDENGATE_FLASH_BASE;
+	addr = cs752x_host->dma_phy_base + ((page << chip->page_shift) % SZ_128M);
 
 	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
 	 * length is 64 bytes. --> for vmalloc not kmalloc
