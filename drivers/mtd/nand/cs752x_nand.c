@@ -53,12 +53,10 @@
 #endif
 
 
-#define NAND_ECC_TEST  1
 
 #define	CSW_USE_DMA
 
 
-static int cs752x_ecc_check = 0;
 
 #define	CS75XX_CMD_MAX_NUM	(3)
 #define	CS75XX_BUF_SIZE		(sizeof(struct nand_buffers))
@@ -91,45 +89,93 @@ struct cs752x_nand_host *cs752x_host;
 static int		g_nand_page = 0;
 static int		g_nand_col = 0;
 static volatile int	dummy;
+#ifdef NO_NEED
 static u32		nflash_type = 0x5000;
+#endif
 
-#ifdef NOT_YET
-static struct nand_ecclayout cs752x_nand_ecclayout;
 
-/* Define default oob placement schemes for large and small page devices */
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 
-static struct nand_ecclayout cs752x_nand_bch_oob_16 = {
-	.eccbytes = 13,
-	.eccpos = {0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14},
-	.oobfree = {
-		{.offset = 15,
-		 /*  . length = 1}} // resever 1 for erase tags: 1 - 1 = 0 */
-		 . length = 0}} // resever 1 for erase tags: 1 - 1 = 0
+#define	BCH_ERASE_TAG_LEN	(1)
+
+static int cs752x_ooblayout_ecc_bch16(struct mtd_info *mtd, int section,
+				  struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	struct nand_ecc_ctrl *ecc = &chip->ecc;
+
+	if (section > 1)
+		return -ERANGE;
+	else {
+		if (section == 0) {
+			oobregion->offset = 0;
+			oobregion->length = 4;
+		} else{
+			oobregion->offset = 6;
+			oobregion->length = ecc->total - 4;
+		}
+	}
+
+	return 0;
+}
+
+static int cs752x_ooblayout_free_bch16(struct mtd_info *mtd, int section,
+				  struct mtd_oob_region *oobregion)
+{
+	if (section > 0)
+		return -ERANGE;
+	else {
+		oobregion->offset = 15;
+		oobregion->length = 1;
+		/* use 1 byte for erase tag, so actually there's no space */
+	}
+	return 0;
+}
+
+static const struct mtd_ooblayout_ops cs752x_ooblayout_ops_bch16 = {
+	.ecc = cs752x_ooblayout_ecc_bch16,
+	.free = cs752x_ooblayout_free_bch16,
 };
 
+static int cs752x_ooblayout_ecc_bch_lp(struct mtd_info *mtd, int section,
+				 struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	struct nand_ecc_ctrl *ecc = &chip->ecc;
+
+	if (section)
+		return -ERANGE;
+
+	oobregion->length = ecc->total;
+	oobregion->offset = mtd->oobsize - oobregion->length - BCH_ERASE_TAG_LEN;
+
+	return 0;
+}
+
+static int cs752x_ooblayout_free_bch_lp(struct mtd_info *mtd, int section,
+				  struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	struct nand_ecc_ctrl *ecc = &chip->ecc;
+	if (section)
+		return -ERANGE;
+
+	oobregion->length = mtd->oobsize - ecc->total - 2 - BCH_ERASE_TAG_LEN;
+	oobregion->offset = 2;
+
+	return 0;
+}
+
+const struct mtd_ooblayout_ops cs752x_ooblayout_ops_bch_lp = {
+	.ecc = cs752x_ooblayout_ecc_bch_lp,
+	.free = cs752x_ooblayout_free_bch_lp,
+};
 #else	/* CONFIG_CS752X_NAND_ECC_HW_BCH */
-
-static struct nand_ecclayout cs752x_nand_oob_8 = {
-	.eccbytes = 3,
-	.eccpos = {0, 1, 2},
-	.oobfree = {
-		{.offset = 3,
-		 .length = 2},
-		{.offset = 6,
-		 .length = 2}}
-};
-
-static struct nand_ecclayout cs752x_nand_oob_16 = {
-	.eccbytes = 6,
-	.eccpos = {0, 1, 2, 3, 6, 7},
-	.oobfree = {
-		{.offset = 8,
-		 . length = 8}}
-};
-
+/*
+ * for humming code
+ * we can use nand_base.c:nand_ooblayout_{sp,lp}_ops
+ */
 #endif	/* CONFIG_CS752X_NAND_ECC_HW_BCH */
-#endif	/* NOT_YET */
 
 
 /* Generic flash bbt decriptors
@@ -587,143 +633,6 @@ static DMA_SSP_RX_DESC_T *rx_desc;
 static int cs752x_nand_dev_ready(struct mtd_info *mtd);
 
 
-#ifdef	NAND_ECC_TEST
-unsigned char	*tw;
-unsigned char	*tr;
-unsigned int eccdata;
-unsigned char eccode[32]__attribute__((aligned(16)));
-
-void cs752x_ecc_check_enable( int isEnable)
-{
-	cs752x_ecc_check = isEnable;
-}
-EXPORT_SYMBOL( cs752x_ecc_check_enable);
-
-int nand_calculate_256_ecc(unsigned char* data_buf, unsigned char* ecc_buf)
-{
-
-	unsigned int i;
-	unsigned int tmp;
-	unsigned int uiparity = 0;
-	unsigned int parityCol, ecc = 0;
-	unsigned int parityCol4321 = 0, parityCol4343 = 0, parityCol4242 =
-	    0, parityColTot = 0;
-	unsigned int *Data = (unsigned int *)(data_buf);
-	unsigned int Xorbit = 0;
-
-	for (i = 0; i < 8; i++) {
-		parityCol = *Data++;
-		tmp = *Data++;
-		parityCol ^= tmp;
-		parityCol4242 ^= tmp;
-		tmp = *Data++;
-		parityCol ^= tmp;
-		parityCol4343 ^= tmp;
-		tmp = *Data++;
-		parityCol ^= tmp;
-		parityCol4343 ^= tmp;
-		parityCol4242 ^= tmp;
-		tmp = *Data++;
-		parityCol ^= tmp;
-		parityCol4321 ^= tmp;
-		tmp = *Data++;
-		parityCol ^= tmp;
-		parityCol4242 ^= tmp;
-		parityCol4321 ^= tmp;
-		tmp = *Data++;
-		parityCol ^= tmp;
-		parityCol4343 ^= tmp;
-		parityCol4321 ^= tmp;
-		tmp = *Data++;
-		parityCol ^= tmp;
-		parityCol4242 ^= tmp;
-		parityCol4343 ^= tmp;
-		parityCol4321 ^= tmp;
-
-		parityColTot ^= parityCol;
-
-		tmp = (parityCol >> 16) ^ parityCol;
-		tmp = (tmp >> 8) ^ tmp;
-		tmp = (tmp >> 4) ^ tmp;
-		tmp = ((tmp >> 2) ^ tmp) & 0x03;
-		if ((tmp == 0x01) || (tmp == 0x02)) {
-			uiparity ^= i;
-			Xorbit ^= 0x01;
-		}
-	}
-
-	tmp = (parityCol4321 >> 16) ^ parityCol4321;
-	tmp = (tmp << 8) ^ tmp;
-	tmp = (tmp >> 4) ^ tmp;
-	tmp = (tmp >> 2) ^ tmp;
-	ecc |= ((tmp << 1) ^ tmp) & 0x200;	/*  p128 */
-
-	tmp = (parityCol4343 >> 16) ^ parityCol4343;
-	tmp = (tmp >> 8) ^ tmp;
-	tmp = (tmp << 4) ^ tmp;
-	tmp = (tmp << 2) ^ tmp;
-	ecc |= ((tmp << 1) ^ tmp) & 0x80;	/*  p64 */
-
-	tmp = (parityCol4242 >> 16) ^ parityCol4242;
-	tmp = (tmp >> 8) ^ tmp;
-	tmp = (tmp << 4) ^ tmp;
-	tmp = (tmp >> 2) ^ tmp;
-	ecc |= ((tmp << 1) ^ tmp) & 0x20;	/*  p32 */
-
-	tmp = parityColTot & 0xFFFF0000;
-	tmp = tmp >> 16;
-	tmp = (tmp >> 8) ^ tmp;
-	tmp = (tmp >> 4) ^ tmp;
-	tmp = (tmp << 2) ^ tmp;
-	ecc |= ((tmp << 1) ^ tmp) & 0x08;	/*  p16 */
-
-	tmp = parityColTot & 0xFF00FF00;
-	tmp = (tmp >> 16) ^ tmp;
-	tmp = (tmp >> 8);
-	tmp = (tmp >> 4) ^ tmp;
-	tmp = (tmp >> 2) ^ tmp;
-	ecc |= ((tmp << 1) ^ tmp) & 0x02;	/*  p8 */
-
-	tmp = parityColTot & 0xF0F0F0F0;
-	tmp = (tmp << 16) ^ tmp;
-	tmp = (tmp >> 8) ^ tmp;
-	tmp = (tmp << 2) ^ tmp;
-	ecc |= ((tmp << 1) ^ tmp) & 0x800000;	/*  p4 */
-
-	tmp = parityColTot & 0xCCCCCCCC;
-	tmp = (tmp << 16) ^ tmp;
-	tmp = (tmp >> 8) ^ tmp;
-	tmp = (tmp << 4) ^ tmp;
-	tmp = (tmp >> 2);
-	ecc |= ((tmp << 1) ^ tmp) & 0x200000;	/*  p2 */
-
-	tmp = parityColTot & 0xAAAAAAAA;
-	tmp = (tmp << 16) ^ tmp;
-	tmp = (tmp >> 8) ^ tmp;
-	tmp = (tmp >> 4) ^ tmp;
-	tmp = (tmp << 2) ^ tmp;
-	ecc |= (tmp & 0x80000);	/*  p1 */
-
-	ecc |= (uiparity & 0x01) << 11;	/*  parit256_1 */
-	ecc |= (uiparity & 0x02) << 12;	/*  parit512_1 */
-	ecc |= (uiparity & 0x04) << 13;	/*  parit1024_1 */
-
-	if (Xorbit) {
-		ecc |= (ecc ^ 0x00A8AAAA) >> 1;
-	} else {
-		ecc |= (ecc >> 1);
-	}
-
-	ecc = ~ecc;
-	*(ecc_buf + 2) = (unsigned char)(ecc >> 16);
-	*(ecc_buf + 1) = (unsigned char)(ecc >> 8);
-	*(ecc_buf + 0) = (unsigned char)(ecc);
-
-	return 0;
-}
-EXPORT_SYMBOL(nand_calculate_256_ecc);
-#endif	/* NAND_ECC_TEST */
-
 /**
  * nand_calculate_512_ecc - [NAND Interface] Calculate 3-byte ECC for 256/512-byte
  *			 block
@@ -734,7 +643,6 @@ EXPORT_SYMBOL(nand_calculate_256_ecc);
 int nand_calculate_512_ecc(struct mtd_info *mtd, const unsigned char *data_buf,
 		       unsigned char *ecc_buf)
 {
-#if 1
 	unsigned long i, ALIGN_FACTOR;
 	unsigned long tmp;
 	unsigned long uiparity = 0;
@@ -855,7 +763,7 @@ int nand_calculate_512_ecc(struct mtd_info *mtd, const unsigned char *data_buf,
 	*(ecc_buf + 2) = (uint8_t) (ecc >> 16);
 	*(ecc_buf + 1) = (uint8_t) (ecc >> 8);
 	*(ecc_buf + 0) = (uint8_t) (ecc);
-#endif
+
 	return 0;
 }
 EXPORT_SYMBOL(nand_calculate_512_ecc);
@@ -873,7 +781,6 @@ EXPORT_SYMBOL(nand_calculate_512_ecc);
 int nand_correct_512_data(struct mtd_info *mtd, unsigned char *pPagedata,
 		      unsigned char *iEccdata1, unsigned char *iEccdata2)
 {
-
 	uint32_t iCompecc = 0, iEccsum = 0;
 	uint32_t iFindbyte = 0;
 	uint32_t iIndex;
@@ -1095,12 +1002,7 @@ static int cs752x_nand_read_subpage(struct mtd_info *mtd,
 				    uint32_t readlen, uint8_t * bufpoi, int page)
 {
 	int start_step, end_step, num_steps;
-	/* uint32_t *eccpos = chip->ecc.layout->eccpos, page; */
-	/* uint8_t *p; */
-	/* struct nand_chip *this = mtd->priv; */
-	/* int data_col_addr, i, gaps = 0; */
 	int datafrag_len;
-	/* int busw = (chip->options & NAND_BUSWIDTH_16) ? 2 : 1; */
 
 	/* Column address wihin the page aligned to ECC size (256bytes). */
 	start_step = data_offs / chip->ecc.size;
@@ -1481,14 +1383,7 @@ out_copy_done:
 	tx_desc[dma_txq5_wptr.bf.index].word0.bf.buf_size = mtd->writesize;
 	tx_desc[dma_txq5_wptr.bf.index].buf_adr =
 	    dma_map_single(NULL, (void *)buf, mtd->writesize, DMA_TO_DEVICE);
-#endif	/* CSW_USE_DMA */
 
-#ifdef	NAND_ECC_TEST
-	memset(tw, 0, mtd->writesize);
-	memcpy(tw, buf, mtd->writesize);
-#endif
-
-#ifdef CSW_USE_DMA
 	dma_rxq5_rptr.wrd = dma_readl(DMA_DMA_SSP_RXQ5_RPTR);
 	rx_desc[dma_rxq5_rptr.bf.index].word0.bf.own = OWN_DMA;
 	rx_desc[dma_rxq5_rptr.bf.index].word0.bf.buf_size = mtd->writesize;
@@ -1558,8 +1453,10 @@ out_copy_done:
 
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 	/* jenfeng clear erase tag */
-	*(chip->oob_poi + chip->ecc.layout->oobfree[0].offset +
-	  chip->ecc.layout->oobfree[0].length) = 0;
+	{
+	u8 zerobuf[1] = {0};
+	mtd_ooblayout_set_databytes(mtd, zerobuf, chip->oob_poi, 0, 1);
+	}
 #endif
 
 	/* dma_txq5_wptr.wrd = dma_readl(DMA_DMA_SSP_TXQ5_WPTR); */
@@ -1912,55 +1809,70 @@ static int cs752x_nand_read_page_raw(struct mtd_info *mtd, struct nand_chip *chi
 
 #ifdef CONFIG_CS752X_NAND_ECC_HW_BCH
 
-static void fill_bch_oob_data( struct nand_chip *chip )
+static void fill_bch_oob_data(struct mtd_info *mtd, struct nand_chip *chip)
 {
-	u32 i, j;
-	u32 *eccpos = chip->ecc.layout->eccpos;
-	int eccsteps = chip->ecc.steps;
-	u32	ul_bch_gen00;
+	int i;
+	int j;
+	int k;
+	int tail_offs;
+	int eccsteps;
+	u32 addr;
+	u32 ul_bch_gen00;
+	u8* ecc_calc = chip->buffers->ecccalc;
 	const u32 reg_offset = FLASH_NF_BCH_GEN0_1 - FLASH_NF_BCH_GEN0_0;
 	const u32 group_offset = FLASH_NF_BCH_GEN1_0 - FLASH_NF_BCH_GEN0_0;
 
-	u32 addr = FLASH_NF_BCH_GEN0_0;
-	u32 *ecc_end_pos;
+	addr = FLASH_NF_BCH_GEN0_0;
+	k = 0;
 
-	for (; eccsteps; --eccsteps, addr += group_offset) {
-		ecc_end_pos = eccpos + chip->ecc.bytes;
+	for (eccsteps = chip->ecc.steps ; eccsteps ; --eccsteps, addr += group_offset) {
+		tail_offs = k + chip->ecc.bytes;
 
-		for (i = 0; eccpos != ecc_end_pos; ++i) {
+		for (i = 0 ; k < tail_offs ; ++i) {
 			ul_bch_gen00 = fl_readl(addr + reg_offset * i);
 
-			for (j = 0; j < 4 && eccpos != ecc_end_pos; ++j, ++eccpos) {
-				chip->oob_poi[*eccpos] =
-				    ((ul_bch_gen00 >> (j * 8)) & 0xff);
+			for (j = 0 ; (j < 4) && (k < tail_offs); ++j, ++k) {
+				ecc_calc[k] = ((ul_bch_gen00 >> (j * 8)) & 0xff);
 			}
 		}
 	}
+	mtd_ooblayout_set_eccbytes(mtd, ecc_calc, chip->oob_poi, 0, chip->ecc.total);
 
-	/*  erase tag */
-	*(chip->oob_poi + chip->ecc.layout->oobfree[0].offset +
-	  chip->ecc.layout->oobfree[0].length) = 0;
+	/* erase tag */
+	{
+	u8 zerobuf[1] = {0};
+	mtd_ooblayout_set_databytes(mtd, zerobuf, chip->oob_poi, 0, 1);
+	}
 }
 
-static void bch_correct( struct mtd_info *mtd, struct nand_chip *chip, uint8_t *buf)
+static void bch_correct(struct mtd_info *mtd, struct nand_chip *chip, uint8_t *buf)
 {
-	int i, j, k;
-	int eccsteps, eccbytes, eccsize;
-	uint32_t *eccpos, *ecc_end_pos;
+	int i;
+	int j;
+	int k;
+	int m;
+	int tail_offs;
+	int eccsteps;
+	int eccbytes;
+	int eccsize;
+	u8* ecc_code = chip->buffers->ecccode;
 	uint8_t *p = buf;
-	u32	ul_bch_oob0;
+	u32 ul_bch_oob0;
+
+	mtd_ooblayout_get_eccbytes(mtd, ecc_code, chip->oob_poi, 0, chip->ecc.total);
 
 	eccsteps = chip->ecc.steps;
 	eccbytes = chip->ecc.bytes;
 	eccsize = chip->ecc.size;
-	eccpos = chip->ecc.layout->eccpos;
 
-	for (i = 0; eccsteps; eccsteps--, i += eccbytes, p += eccsize) {
-		ecc_end_pos = eccpos + chip->ecc.bytes;
-		for (j = 0; j < chip->ecc.bytes; j += 4) {
+	m = 0;
+	for (i = 0 ; eccsteps ; eccsteps--, i += eccbytes, p += eccsize) {
+		tail_offs = m + chip->ecc.bytes;
+
+		for (j = 0 ; j < chip->ecc.bytes ; j += 4) {
 			ul_bch_oob0 = 0;
-			for (k = 0; k < 4 && eccpos != ecc_end_pos; ++k, ++eccpos) {
-				ul_bch_oob0 |= chip->oob_poi[*eccpos] << (8 * k);
+			for (k = 0 ; (k < 4) && (m < tail_offs) ; ++k, ++m) {
+				ul_bch_oob0 |= ecc_code[m] << (8 * k);
 			}
 
 			fl_writel(FLASH_NF_BCH_OOB0 + j, ul_bch_oob0);
@@ -2004,12 +1916,6 @@ static void bch_correct( struct mtd_info *mtd, struct nand_chip *chip, uint8_t *
 			break;
 		}
 
-		if (cs752x_ecc_check && i == 0) {
-			unsigned char *free = buf + mtd->writesize + mtd->oobsize;
-			*free = bch_sts.bf.bchDecStatus;
-			*(free + 1) = bch_sts.bf.bchErrNum;
-		}
-
 		/* disable ecc compare */
 		bch_ctrl.wrd = fl_readl(FLASH_NF_BCH_CONTROL);
 		bch_ctrl.bf.bchCompare = 0;
@@ -2020,47 +1926,22 @@ static void bch_correct( struct mtd_info *mtd, struct nand_chip *chip, uint8_t *
 
 #ifdef CONFIG_CS752X_NAND_ECC_HW_HAMMING
 
-static void fill_hamming_oob_data( struct nand_chip *chip, struct mtd_info *mtd )
+static void fill_hamming_oob_data(struct nand_chip *chip, struct mtd_info *mtd)
 {
 	u32 i, j;
 	u32 *eccpos = chip->ecc.layout->eccpos;
 	int eccsteps = chip->ecc.steps;
 	int eccbytes = chip->ecc.bytes;
 	u32	ul_ecc_gen0;
+	u8 *ecc_calc = chip->buffers->ecccalc;
 
 	for (i = 0, j = 0; eccsteps; eccsteps--, i++, j += eccbytes) {
-#ifdef	NAND_ECC_TEST
-		get_cpu();
-		if (chip->ecc.size == 256) {
-			memset(eccode, 0, 32);
-			/* printk("%s : ecc 256 addr %p ",__func__,&tw[i*256]); */
-			nand_calculate_256_ecc(&tw[i * 256], &eccode[0]);
-			nand_calculate_ecc(mtd, &tw[i * 256], &eccode[3]);
-			eccdata = 0;
-			eccdata = eccode[0] | eccode[1] << 8 | eccode[2] << 16;
-			ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + 4 * i);
-			if (ul_ecc_gen0 != eccdata)
-				printk(" i (%x)HWecc error ecc_gen0(%x)  eccdata (%x)!\n",
-				     i, ul_ecc_gen0, eccdata);
-		} else {
-			memset(eccode, 0, 32);
-			nand_calculate_512_ecc(mtd, &tw[i * 512], &eccode[0]);
-
-			eccdata = 0;
-			eccdata = eccode[0] | eccode[1] << 8 | eccode[2] << 16;
-			ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + 4 * i);
-			if (ul_ecc_gen0 != eccdata)
-				printk(" i (%x)HWecc error ecc_gen0(%x)  eccdata (%x)!\n",
-				     i, ul_ecc_gen0, eccdata);
-		}
-		put_cpu();
-#endif				/* NAND_ECC_TEST */
-
 		ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + 4 * i);
-		chip->oob_poi[eccpos[j]] = ul_ecc_gen0 & 0xff;	/*  */
-		chip->oob_poi[eccpos[j + 1]] = (ul_ecc_gen0 >> 8) & 0xff;
-		chip->oob_poi[eccpos[j + 2]] = (ul_ecc_gen0 >> 16) & 0xff;
+		ecc_calc[j]	= ul_ecc_gen0 & 0xff;
+		ecc_calc[j + 1]	= (ul_ecc_gen0 >> 8) & 0xff;
+		ecc_calc[j + 2]	= (ul_ecc_gen0 >> 16) & 0xff;
 	}
+	mtd_ooblayout_set_eccbytes(mtd, ecc_calc, chip->ecc_poi, 0, chip->ecc.total);
 }
 
 #endif	/* CONFIG_CS752X_NAND_ECC_HW_HAMMING */
@@ -2189,14 +2070,6 @@ out_copy_done:
 	tx_desc[dma_txq5_wptr.bf.index].buf_adr =
 	    dma_map_single(NULL, (void *)buf, mtd->writesize, DMA_TO_DEVICE);
 
-#endif	/* CSW_USE_DMA */
-
-#ifdef	NAND_ECC_TEST
-	memset(tw, 0, mtd->writesize);
-	memcpy(tw, buf, mtd->writesize);
-#endif
-
-#ifdef CSW_USE_DMA
 	dma_rxq5_rptr.wrd = dma_readl(DMA_DMA_SSP_RXQ5_RPTR);
 	rx_desc[dma_rxq5_rptr.bf.index].word0.bf.own = OWN_DMA;
 	rx_desc[dma_rxq5_rptr.bf.index].word0.bf.buf_size = mtd->writesize;
@@ -2273,7 +2146,7 @@ out_copy_done:
 #endif
 
 #if defined( CONFIG_CS752X_NAND_ECC_HW_BCH )
-	fill_bch_oob_data(chip);
+	fill_bch_oob_data(mtd, chip);
 #else
 	fill_hamming_oob_data(chip, mtd);
 #endif
@@ -2334,17 +2207,6 @@ out_copy_done:
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
 
-	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
-	 * length is 64 bytes. --> for vmalloc not kmalloc
-	 */
-	if(vaddr!=0)
-	{
-		buf = vaddr;
-		vaddr = 0;
-	}
-
-	/* /////////////// */
-	/* chip->write_buf(mtd, chip->oob_poi, mtd->oobsize); */
 #else	/* CSW_USE_DMA */
 
 	do_pio_write_buf(chip->oob_poi, mtd->oobsize);
@@ -2404,72 +2266,36 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 	fl_writel(FLASH_NF_ECC_CONTROL, ecc_ctl.wrd);
 #endif
 
-#ifdef	NAND_ECC_TEST
-	memset(tr , 0, mtd->writesize);
-	memcpy(tr, buf, mtd->writesize);
-#endif
-
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
-	if( 0xff ==  *(chip->oob_poi+ chip->ecc.layout->oobfree[0].offset +  chip->ecc.layout->oobfree[0].length)){
-		/*  Erase tga is on , No needs to check. */
+	{
+	u8 tmpbuf[1];
+	mtd_ooblayout_get_databytes(mtd, tmpbuf, chip->oob_poi, 0, 1);
+	if ((u8)0xff == tmpbuf[0]){
+		/*  Erase tag is on , No needs to check. */
 		goto BCH_EXIT;
 	}
+	}
 
-#endif
-
-#ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 	bch_correct( mtd, chip, buf);
-#else
+
+#else	/* CONFIG_CS752X_NAND_ECC_HW_BCH */
 	int i ;
-	int eccsteps, eccbytes, eccsize;
-	uint32_t *eccpos;
+	int eccsteps;
+	int eccbytes;
+	int eccsize;
 
 	eccsteps = chip->ecc.steps;
 	eccbytes = chip->ecc.bytes;
 	eccsize = chip->ecc.size;
-	eccpos = chip->ecc.layout->eccpos;
 
-	for (i = 0; i < chip->ecc.total; i++) {
-		ecc_code[i] = chip->oob_poi[eccpos[i]];
-	}
+	mtd_ooblayout_get_eccbytes(mtd, ecc_code, chip->oob_poi, 0, chip->ecc.total);
 
 	for (i = 0 ; eccsteps; eccsteps--, i += eccbytes, p += eccsize) {
-#ifdef	NAND_ECC_TEST
- 	        get_cpu();
-		if(chip->ecc.size == 256) {
-			memset(eccode, 0 ,32);
-			if(memcmp(tr, buf, mtd->writesize))
-				printk("copy error ");
-
-			nand_calculate_256_ecc(&tr[(i/eccbytes)*256], &eccode[0] );
-			nand_calculate_256_ecc(&buf[(i/eccbytes)*256], &eccode[3] );
-			/* nand_calculate_ecc(mtd, &tr[(i/eccbytes)*256], &eccode[3]); */
-			eccdata = 0;
-			eccdata = eccode[0] | eccode[1]<<8 | eccode[2]<<16;
-			ecc_oob.wrd =	ecc_code[i] | ecc_code[i+1]<<8 | ecc_code[i+2]<<16;
-			fl_writel(FLASH_NF_ECC_OOB, ecc_oob.wrd);
-			if(ecc_oob.wrd != eccdata)
-				printk("256: (i/eccbytes) : %x HWecc error ecc_oob.wrd(%x)  eccdata (%x)!\n",(i/eccbytes) ,ecc_oob.wrd,eccdata);
-		} else{
-			memset(eccode, 0 ,32);
-			nand_calculate_512_ecc(mtd, &tr[(i/eccbytes)*512], &eccode[0] );
-
-			/* nand_calculate_ecc(mtd, &tr[(i/eccbytes)*512], &eccode[3]); */
-			eccdata = 0;
-			eccdata = eccode[0] | eccode[1]<<8 | eccode[2]<<16;
-			ecc_oob.wrd =	ecc_code[i] | ecc_code[i+1]<<8 | ecc_code[i+2]<<16;
-			fl_writel(FLASH_NF_ECC_OOB, ecc_oob.wrd);
-			if(ecc_oob.wrd != eccdata)
-				printk("512: (i/eccbytes) : %x HWecc error ecc_oob.wrd(%x)  eccdata (%x)!\n",(i/eccbytes) ,ecc_oob.wrd,eccdata);
-		}
-		put_cpu();
-#endif
-		/* for (i = 0 ; eccsteps; eccsteps--, i += eccbytes, p += eccsize) { */
-		ecc_oob.wrd =	ecc_code[i] | ecc_code[i+1]<<8 | ecc_code[i+2]<<16;
+		ecc_oob.wrd = ecc_code[i] | (ecc_code[i + 1] << 8) | (ecc_code[i + 2] << 16);
 		fl_writel(FLASH_NF_ECC_OOB, ecc_oob.wrd);
 
 		ecc_ctl.wrd = fl_readl(FLASH_NF_ECC_CONTROL);
-		ecc_ctl.bf.eccCodeSel = (i/eccbytes);
+		ecc_ctl.bf.eccCodeSel = (i / eccbytes);
 		fl_writel(FLASH_NF_ECC_CONTROL, ecc_ctl.wrd);
 
 		ecc_sts.wrd = fl_readl(FLASH_NF_ECC_STATUS);
@@ -2480,32 +2306,25 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 			case ECC_1BIT_DATA_ERR:
 				/* flip the bit */
 				p[ecc_sts.bf.eccErrByte] ^= (1 << ecc_sts.bf.eccErrBit);
-				ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + (4*(i/eccbytes)));
-				/* for (i = 0; i < chip->ecc.total; i++) */
+				ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + (4 * (i / eccbytes)));
 
 				printk("\nECC one bit data error(%x)!!(org: %x) HW(%xs) page(%x)\n",
 					(i/eccbytes),ecc_oob.wrd, ul_ecc_gen0, page);
 				break;
 			case ECC_1BIT_ECC_ERR:
-				ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + (4*(i/eccbytes)));
-				/* for (i = 0; i < chip->ecc.total; i++) */
+				ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + (4 * (i / eccbytes)));
 				printk("\nECC one bit ECC error(%x)!!(org: %x) HW(%xs) page(%x)\n",
 					(i/eccbytes), ecc_oob.wrd, ul_ecc_gen0, page);
 				break;
 			case ECC_UNCORRECTABLE:
 				mtd->ecc_stats.failed++;
-				ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + (4*(i/eccbytes)));
+				ul_ecc_gen0 = fl_readl(FLASH_NF_ECC_GEN0 + (4 * (i / eccbytes)));
 				printk("\nECC uncorrectable error(%x)!!(org: %x) HW(%xs) page(%x)\n",
 					(i/eccbytes), ecc_oob.wrd, ul_ecc_gen0, page);
 				break;
 		}
-
-		if ( cs752x_ecc_check && i == 0 ) {
-			unsigned char *free= buf+ mtd->writesize+ mtd->oobsize;
-			*free=  ecc_sts.bf.eccStatus;
-		}
 	}
-#endif
+#endif	/* CONFIG_CS752X_NAND_ECC_HW_BCH */
 
 
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
@@ -2578,63 +2397,19 @@ static int cs752x_nand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 static int cs752x_configure_for_chip(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
-	int i;
-	int eccStartOffset;
 	int err = 0;
 
-#ifdef CONFIG_CS752X_NAND_ECC_HW_BCH_8_512
-	if (mtd->oobsize == 16) {
-		chip->ecc.layout = &cs752x_nand_bch_oob_16;
-	} else
-#elif defined(CONFIG_CS752X_NAND_ECC_HW_HAMMING_512) || defined(CONFIG_CS752X_NAND_ECC_HW_HAMMING_256)
-	if (mtd->oobsize == 8) {
-		chip->ecc.layout = &cs752x_nand_oob_8;
-	} else if (mtd->oobsize == 16) {
-		chip->ecc.layout = &cs752x_nand_oob_16;
-	} else
-#endif
-	{
-		struct nand_ecclayout *layout = &cs752x_nand_ecclayout;
-
-		memset(layout, 0, sizeof(*layout));
-
-		layout->eccbytes = mtd->writesize / chip->ecc.size * chip->ecc.bytes;
-		if (sizeof(layout->eccpos) < (4 * layout->eccbytes)) {
-			printk(KERN_WARNING "eccpos memory is less than needed eccbytes");
-			err = -EINVAL;
-			goto l_exit;
-		}
-
-		if (layout->eccbytes > mtd->oobsize) {
-			printk(KERN_WARNING "eccbytes is less than oob size");
-			err = -EINVAL;
-			goto l_exit;
-		}
-
-		memset(layout->eccpos, 0, sizeof(layout->eccpos));
-		eccStartOffset = mtd->oobsize - layout->eccbytes;
-		for (i = 0; i < layout->eccbytes; ++i) {
-			if ((i + eccStartOffset) == chip->badblockpos) {
-				continue;
-			}
-			layout->eccpos[i] = i + eccStartOffset;
-		}
-
-		layout->oobfree[0].offset = 2;
-		layout->oobfree[0].length =
-			mtd->oobsize - layout->eccbytes - layout->oobfree[0].offset;
-
 #ifdef CONFIG_CS752X_NAND_ECC_HW_BCH
-		/*  BCH algorithm needs one extra byte to tag erase status */
-		if (layout->oobfree[0].length == 0) {
-			printk(KERN_WARNING "eccbytes is less than required");
-			err = -EINVAL;
-			goto l_exit;
-		}
-		layout->oobfree[0].length -= 1;
+	if (mtd->oobsize == 16)
+		mtd_set_ooblayout(mtd, &cs752x_ooblayout_ops_bch16);
+	else
+		mtd_set_ooblayout(mtd, &cs752x_ooblayout_ops_bch_lp);
+#elif defined(CONFIG_CS752X_NAND_ECC_HW_HAMMING)
+	if ((mtd->oobsize == 8) || (mtd->oobsize == 16))
+		mtd_set_ooblayout(mtd, &nand_ooblayout_sp_ops);
+	else
+		mtd_set_ooblayout(mtd, &nand_ooblayout_lp_ops);
 #endif
-		chip->ecc.layout = layout;
-	}
 
 	/*********** controller specific function hooks ***********/
 
@@ -2671,12 +2446,10 @@ static int cs752x_configure_for_chip(struct mtd_info *mtd)
 		       "%d byte page size, fallback to SW ECC\n",
 		       chip->ecc.size, mtd->writesize);
 	default:
-		printk(KERN_WARNING "Invalid NAND_ECC_MODE %d\n",
-		       chip->ecc.mode);
+		printk(KERN_WARNING "Invalid NAND_ECC_MODE %d\n", chip->ecc.mode);
 		BUG();
 	}
 
-  l_exit:;
 	return err;
 }
 
@@ -2746,24 +2519,8 @@ static void cs752x_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 		return;
 	}
 
-#ifdef NOT_YET	/* may not use this */
-	if (len <= (mtd->writesize + mtd->oobsize)) {
-		struct nand_chip *this = mtd->priv;
-		int page;
-		int col;
-#if 1	/* FIX ME */
-		int oob_required = false;
-#endif
-		page = g_nand_page;
-		col = g_nand_col;
-
-		this->ecc.read_page(mtd, this, this->buffers->databuf, oob_required, page);
-		memcpy(buf, &(this->buffers->databuf[col]), len);
-	}
-#else
 	/* must not reach here */
 	BUG();
-#endif
 }
 
 /**
@@ -2776,28 +2533,8 @@ static void cs752x_nand_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
  */
 static void cs752x_nand_write_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
 {
-#ifdef NOT_YET	/* may not use this */
-	int i, page = 0, col = 0;
-	struct nand_chip *chip = mtd->priv;
-	size_t retlen;
-	retlen = 0;
-
-	if (len <= (mtd->writesize + mtd->oobsize)) {
-
-		page = g_nand_page;
-		col = g_nand_col;
-		chip->pagebuf = -1;
-		chip->ecc.read_page(mtd, chip, chip->buffers->databuf, page);
-
-		for (i = 0; i < len; i++)
-			chip->buffers->databuf[col + i] = buf[i];
-
-		chip->ecc.write_page(mtd, chip, chip->buffers->databuf);
-	}
-#else
 	/* must not reach here */
 	BUG();
-#endif
 }
 
 /**
@@ -2808,12 +2545,7 @@ static void cs752x_nand_write_buf(struct mtd_info *mtd, const uint8_t *buf, int 
  */
 static uint8_t cs752x_nand_read_byte(struct mtd_info *mtd)
 {
-	unsigned int data;
-#ifdef NOT_YET
-	struct nand_chip *chip = mtd->priv;
-	unsigned int page = 0;
-	unsigned int col = 0;
-#endif
+	unsigned int data = 0xFF;
 
 	/* for result of NAND_CMD_STATUS */
 	if (cs752x_host->flag_status_req)
@@ -2827,19 +2559,9 @@ static uint8_t cs752x_nand_read_byte(struct mtd_info *mtd)
 		return data;
 	}
 
-#ifdef NOT_YET
-	page = g_nand_page;
-	col = g_nand_col;
-	chip->pagebuf = -1;
-	cs752x_nand_read_page_raw(mtd, chip, chip->buffers->databuf, page);
-	data = *(chip->buffers->databuf + col);
-
-	return data & 0xff;
-#else
 	/* must not reach here */
 	BUG();
 	return 0xFF;
-#endif
 }
 
 static void  clear_command_cache(void)
@@ -2860,21 +2582,6 @@ static int add_to_command_cache(unsigned int cmd)
 	}
 	return res;
 }
-
-#if 0
-static void dump_buf(void* buf, int bytes)
-{
-int ii;
-u8 *p = buf;
-for (ii = 0 ; ii < bytes ; ii++){
-	printk("%02X ", *p++);
-	if( (ii & 0x0F) == 0x0F ){
-		printk("\n");
-	}
-}
-printk("\n");
-}
-#endif
 
 static void do_readid_param(struct nand_chip *chip, int col, u8 cmd, int bytes)
 {
@@ -3316,8 +3023,8 @@ static int init_DMA_SSP( void )
 static int __init cs752x_nand_probe(struct platform_device *pdev)
 {
 	struct nand_chip *this;
-	struct resource *r;
 	struct mtd_info *mtd;
+	struct resource *rmem;
 	int err = 0;
 
 	printk("CS752X NAND init ...\n");
@@ -3329,10 +3036,38 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	r = platform_get_resource(pdev, IORESOURCE_IO, 0);
-	if (!r) {
-		dev_err(&pdev->dev, "no io memory resource defined!\n");
+	/* region of NAND memory DMA space */
+	rmem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!rmem) {
+		dev_err(&pdev->dev, "no memory resource for NAND controller\n");
 		err = -ENODEV;
+		goto err_get_res;
+	}
+	cs752x_host->dma_phy_base = rmem->start;
+
+	/* region of NAND controller */
+	rmem = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	if (!rmem) {
+		dev_err(&pdev->dev, "no memory resource for NAND controller\n");
+		err = -ENODEV;
+		goto err_get_res;
+	}
+	cs752x_host->iobase_fl = devm_ioremap_resource(&pdev->dev, rmem);
+	if (IS_ERR(cs752x_host->iobase_fl)) {
+		err = PTR_ERR(cs752x_host->iobase_fl);
+		goto err_get_res;
+	}
+
+	/* region of DMA controller */
+	rmem = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+	if (!rmem) {
+		dev_err(&pdev->dev, "no memory resource for DMA controller\n");
+		err = -ENODEV;
+		goto err_get_res;
+	}
+	cs752x_host->iobase_dma_ssp = devm_ioremap_resource(&pdev->dev, rmem);
+	if (IS_ERR(cs752x_host->iobase_dma_ssp)) {
+		err = PTR_ERR(cs752x_host->iobase_dma_ssp);
 		goto err_get_res;
 	}
 
@@ -3428,13 +3163,6 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	if (err)
 		goto err_scan;
 
-#ifdef	NAND_ECC_TEST
-	tw = (unsigned char*)((u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL));
-	tr = (unsigned char*)((u32)kzalloc(mtd->writesize + sizeof(u32), GFP_KERNEL) & (~0x01UL));
-	if ((tw == NULL) || (tr == NULL))
-		goto err_scan;
-#endif
-
 	err = cs752x_configure_for_chip(mtd);
 	if (err)
 		goto err_scan;
@@ -3442,14 +3170,7 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	if (err)
 		goto err_scan;
 
-
-#ifdef	NAND_ECC_TEST
-#endif
-
-	/* Register the partitions */
-
 	mtd->name = "cs752x_nand_flash";
-
 	mtd_device_register(cs752x_host->mtd, NULL, 0);
 
 	if (err)
@@ -3504,16 +3225,30 @@ static int __exit cs752x_nand_remove(struct platform_device *pdev)
 }
 
 
+#ifdef CONFIG_OF
+static const struct of_device_id cs752x_nand_dt_ids[] = {
+	{ .compatible = "cortina,cs752x-nand" },
+};
+
+MODULE_DEVICE_TABLE(of, cs752x_nand_dt_ids);
+#endif
+
 static struct platform_driver cs752x_nand_driver = {
-	.driver.name	= "cs752x_nand",
-	.driver.owner	= THIS_MODULE,
+	.driver = {
+		.name	= "cs752x_nand",
+		.owner	= THIS_MODULE,
+		.of_match_table = of_match_ptr(cs752x_nand_dt_ids),
+	},
 	.probe		= cs752x_nand_probe,
 	.remove		= cs752x_nand_remove,
 };
 
-
+#if 1
+module_platform_driver(cs752x_nand_driver);
+#else
 static int __init cs752x_nand_init(void)
 {
+#ifdef NO_NEED
 	FLASH_TYPE_t sf_type;
 	char *ptr;
 
@@ -3535,6 +3270,7 @@ static int __init cs752x_nand_init(void)
 	}
 
 	printk("--> cs752x_nand_init\n");
+#endif
 	return platform_driver_register(&cs752x_nand_driver);
 }
 
@@ -3545,6 +3281,7 @@ static void __exit cs752x_nand_exit(void)
 
 module_init(cs752x_nand_init);
 module_exit(cs752x_nand_exit);
+#endif
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Middle Huang <middle.huang@cortina-systems.com>");
