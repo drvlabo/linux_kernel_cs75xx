@@ -1423,9 +1423,7 @@ out_copy_done:
 	/* enable txq5 */
 	dma_txq5_ctrl.bf.txq5_en = 1;
 	dma_writel(DMA_DMA_SSP_TXQ5_CONTROL, dma_txq5_ctrl.wrd);
-#endif	/* CSW_USE_DMA */
 
-#ifdef CSW_USE_DMA
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	while (!dma_ssp_rxq5_intsts.bf.rxq5_eof) {
 		udelay(1);
@@ -1442,14 +1440,14 @@ out_copy_done:
 		    dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	}
 
+	if (!oob_required)
+		goto l_skip_oob_stage;
+
 	/* clr tx/rx eof */
 	dma_ssp_txq5_intsts.wrd = dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_TXQ5_INTERRUPT, dma_ssp_txq5_intsts.wrd);
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
-
-	if (!oob_required)
-		goto l_skip_oob_stage;
 
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 	/* jenfeng clear erase tag */
@@ -1489,6 +1487,8 @@ out_copy_done:
 		    dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	}
 
+  l_skip_oob_stage:;
+
 	flash_start.wrd = fl_readl(FLASH_FLASH_ACCESS_START);
 	while (flash_start.bf.fifoReq) {
 		udelay(1);
@@ -1506,19 +1506,6 @@ out_copy_done:
 	dma_writel(DMA_DMA_SSP_TXQ5_INTERRUPT, dma_ssp_txq5_intsts.wrd);
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
-
-  l_skip_oob_stage:;
-
-	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
-	 * length is 64 bytes. --> for vmalloc not kmalloc
-	 */
-	if(vaddr!=0){
-		buf = vaddr;
-		vaddr = 0;
-	}
-
-	/* /////////////// */
-	/* chip->write_buf(mtd, chip->oob_poi, mtd->oobsize); */
 
 #else	/* CSW_USE_DMA */
 
@@ -1544,8 +1531,8 @@ static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 	uint8_t *vaddr;
 
 #ifdef CSW_USE_DMA
-	/* disable txq5 */
 
+	/* disable txq5 */
 	dma_txq5_ctrl.bf.txq5_en = 0;
 	dma_writel(DMA_DMA_SSP_TXQ5_CONTROL, dma_txq5_ctrl.wrd);
 
@@ -1554,6 +1541,7 @@ static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 	dma_writel(DMA_DMA_SSP_TXQ5_INTERRUPT, dma_ssp_txq5_intsts.wrd);
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_RXQ5_INTERRUPT, dma_ssp_rxq5_intsts.wrd);
+
 #endif	/* CSW_USE_DMA */
 
 	/* for indirect access with DMA, because DMA not ready  */
@@ -1660,8 +1648,6 @@ out_copy_done:
 
 	dma_ssp_rxq5_intsts.wrd = dma_readl(DMA_DMA_SSP_RXQ5_INTERRUPT);
 
-	//#define DMA_DMA_SSP_TXQ5_RPTR                    0xf009046c
-
 	while (!dma_ssp_rxq5_intsts.bf.rxq5_eof ) { //444 + 2
 		udelay(1);
 		schedule();
@@ -1676,6 +1662,9 @@ out_copy_done:
 		    dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	}
 
+	if (!oob_required)
+		goto l_skip_oob_stage;
+
 	/* clr tx/rx eof */
 	dma_ssp_txq5_intsts.wrd = dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	dma_writel(DMA_DMA_SSP_TXQ5_INTERRUPT, dma_ssp_txq5_intsts.wrd);
@@ -1685,19 +1674,7 @@ out_copy_done:
 	dma_map_single(NULL, (void *)buf, mtd->writesize, DMA_FROM_DEVICE);
 	wmb();
 
-	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
-	 * length is 64 bytes. --> for vmalloc not kmalloc
-	 */
-	if(vaddr!=0){
-		memcpy(vaddr, buf, mtd->writesize);
-		buf = vaddr;
-		vaddr = 0;
-	}
-
 	/******************************************************/
-
-	if (!oob_required)
-		goto l_skip_oob_stage;
 
 	/* oob tx desc */
 	//dma_txq5_wptr.bf.index = (dma_txq5_wptr.bf.index + 1) % FDMA_DESC_NUM;
@@ -1740,6 +1717,8 @@ out_copy_done:
 		    dma_readl(DMA_DMA_SSP_TXQ5_INTERRUPT);
 	}
 
+  l_skip_oob_stage:;
+
 	flash_start.wrd = fl_readl(FLASH_FLASH_ACCESS_START);
 	while (flash_start.bf.fifoReq) {
 		udelay(1);
@@ -1758,8 +1737,6 @@ out_copy_done:
 
 	dma_map_single(NULL, (void *)chip->oob_poi, mtd->oobsize, DMA_FROM_DEVICE);
 	wmb();
-
-  l_skip_oob_stage:;
 
 #else	/* CSW_USE_DMA */
 
