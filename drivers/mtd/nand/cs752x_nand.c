@@ -3022,18 +3022,22 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	printk("Error Correction Method: bch 8\n");
 	this->ecc.size		= 512;
 	this->ecc.bytes		= 13;
+	this->ecc.strength	= 8;
 #elif defined( CONFIG_CS752X_NAND_ECC_HW_BCH_12_512 )
 	printk("Error Correction Method: bch 12\n");
 	this->ecc.size		= 512;
 	this->ecc.bytes		= 20;
+	this->ecc.strength	= 12;
 #elif defined( CONFIG_CS752X_NAND_ECC_HW_HAMMING_512 )
 	printk("Error Correction Method: ecc 512\n");
 	this->ecc.size		= 512;
 	this->ecc.bytes		= 3;
+	this->ecc.strength	= 1;
 #else
 	printk("Error Correction Method: ecc 256\n");
 	this->ecc.size		= 256;
 	this->ecc.bytes		= 3;
+	this->ecc.strength	= 1;
 #endif
 
 	/* check for proper chip_delay setup, set 20us if not */
