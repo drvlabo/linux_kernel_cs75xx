@@ -89,9 +89,6 @@ struct cs752x_nand_host *cs752x_host;
 static int		g_nand_page = 0;
 static int		g_nand_col = 0;
 static volatile int	dummy;
-#ifdef NO_NEED
-static u32		nflash_type = 0x5000;
-#endif
 
 
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
@@ -2457,55 +2454,6 @@ static int cs752x_configure_for_chip(struct mtd_info *mtd)
 	return err;
 }
 
-#ifdef NO_NEED
-/**
- * cs752x_nand_verify_buf - [DEFAULT] Verify chip data against buffer
- * @mtd:	MTD device structure
- * @buf:	buffer containing the data to compare
- * @len:	number of bytes to compare
- *
- * Default verify function for 8bit buswith
- */
-static int cs752x_nand_verify_buf(struct mtd_info *mtd, const uint8_t *buf, int len)
-{
-	int i, page = 0;
-	struct nand_chip *chip = mtd->priv;
-	size_t retlen;
-	retlen = 0;
-
-	page = g_nand_page;
-
-	chip->pagebuf = -1;
-	memset(chip->buffers->databuf, 0, mtd->writesize);
-	chip->ecc.read_page(mtd, chip, chip->buffers->databuf, page);
-
-	if (len == mtd->writesize) {
-		for (i = 0; i < len; i++) {
-			if (buf[i] != chip->buffers->databuf[i]) {
-				printk("Data verify error -> page: %x, byte: %x, buf[i]:%x  chip->buffers->databuf[i]:%x \n",
-				     g_nand_page, i, buf[i],
-				     chip->buffers->databuf[i]);
-				return i;
-			}
-		}
-	} else if (len == mtd->oobsize) {
-		for (i = 0; i < len; i++) {
-			if (buf[i] != chip->oob_poi[i]) {
-				printk("OOB verify error -> page: %x, byte: %x, buf[i]:%x  chip->oob_poi[i]:%x  \n",
-				     g_nand_page, i, buf[i], chip->oob_poi[i]);
-				return i;
-			}
-		}
-	} else {
-		printk(KERN_WARNING "verify length not match 0x%08x\n", len);
-
-		return -1;
-	}
-
-	return 0;
-}
-#endif	/* NO_NEED */
-
 /**
  * cs752x_nand_read_buf - [DEFAULT] read chip data into buffer
  * @mtd:	MTD device structure
@@ -3148,9 +3096,6 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 #endif
 	this->write_buf		= cs752x_nand_write_buf;
 	this->read_buf		= cs752x_nand_read_buf;
-#ifdef NO_NEED
-	this->verify_buf	= cs752x_nand_verify_buf;
-#endif
 
 	/* set the bad block tables to support debugging */
 	this->bbt_td = &cs752x_bbt_main_descr;
@@ -3247,45 +3192,7 @@ static struct platform_driver cs752x_nand_driver = {
 	.remove		= cs752x_nand_remove,
 };
 
-#if 1
 module_platform_driver(cs752x_nand_driver);
-#else
-static int __init cs752x_nand_init(void)
-{
-#ifdef NO_NEED
-	FLASH_TYPE_t sf_type;
-	char *ptr;
-
-	/* parsing serial flash type */
-	ptr = strstr(saved_command_line, "nf_type");
-	if (ptr) {
-		ptr += strlen("nf_type") + 1;
-		nflash_type = simple_strtoul(ptr, NULL, 0);
-		fl_writel(FLASH_TYPE, nflash_type);
-	} else{
-		nflash_type = fl_readl(FLASH_TYPE)& 0xffff;
-		printk("%s : Flash type : 0x%04x \n",__func__,nflash_type);
-	}
-
-	sf_type.wrd = fl_readl(FLASH_TYPE);
-
-	if (sf_type.bf.flashType == 0 || sf_type.bf.flashType == 1) {
-		return -EACCES;
-	}
-
-	printk("--> cs752x_nand_init\n");
-#endif
-	return platform_driver_register(&cs752x_nand_driver);
-}
-
-static void __exit cs752x_nand_exit(void)
-{
-	platform_driver_unregister(&cs752x_nand_driver);
-}
-
-module_init(cs752x_nand_init);
-module_exit(cs752x_nand_exit);
-#endif
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Middle Huang <middle.huang@cortina-systems.com>");
