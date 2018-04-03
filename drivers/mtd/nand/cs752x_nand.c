@@ -98,6 +98,8 @@ static u32		nflash_type = 0x5000;
 
 #define	BCH_ERASE_TAG_LEN	(1)
 
+#define	BCH_ERASE_TAG_SECTION	(0xFF)
+
 static int cs752x_ooblayout_ecc_bch16(struct mtd_info *mtd, int section,
 				  struct mtd_oob_region *oobregion)
 {
@@ -122,13 +124,13 @@ static int cs752x_ooblayout_ecc_bch16(struct mtd_info *mtd, int section,
 static int cs752x_ooblayout_free_bch16(struct mtd_info *mtd, int section,
 				  struct mtd_oob_region *oobregion)
 {
-	if (section > 0)
-		return -ERANGE;
-	else {
+	if (section == BCH_ERASE_TAG_SECTION) {
 		oobregion->offset = 15;
-		oobregion->length = 1;
+		oobregion->length = 1 - BCH_ERASE_TAG_LEN;
 		/* use 1 byte for erase tag, so actually there's no space */
-	}
+	} else
+		return -ERANGE;
+
 	return 0;
 }
 
@@ -147,7 +149,7 @@ static int cs752x_ooblayout_ecc_bch_lp(struct mtd_info *mtd, int section,
 		return -ERANGE;
 
 	oobregion->length = ecc->total;
-	oobregion->offset = mtd->oobsize - oobregion->length - BCH_ERASE_TAG_LEN;
+	oobregion->offset = mtd->oobsize - ecc->total;
 
 	return 0;
 }
@@ -157,11 +159,12 @@ static int cs752x_ooblayout_free_bch_lp(struct mtd_info *mtd, int section,
 {
 	struct nand_chip *chip = mtd_to_nand(mtd);
 	struct nand_ecc_ctrl *ecc = &chip->ecc;
-	if (section)
-		return -ERANGE;
 
-	oobregion->length = mtd->oobsize - ecc->total - 2 - BCH_ERASE_TAG_LEN;
-	oobregion->offset = 2;
+	if ((section == 0) || (section == BCH_ERASE_TAG_SECTION)) {
+		oobregion->length = mtd->oobsize - ecc->total - 2 - BCH_ERASE_TAG_LEN;
+		oobregion->offset = 2;
+	} else
+		return -ERANGE;
 
 	return 0;
 }
@@ -1454,8 +1457,9 @@ out_copy_done:
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 	/* jenfeng clear erase tag */
 	{
-	u8 zerobuf[1] = {0};
-	mtd_ooblayout_set_databytes(mtd, zerobuf, chip->oob_poi, 0, 1);
+	struct mtd_oob_region region;
+	mtd_ooblayout_free(mtd, BCH_ERASE_TAG_SECTION, &region);
+	chip->oob_poi[region.offset] = 0;
 	}
 #endif
 
