@@ -940,7 +940,7 @@ inline static u32 mk_nf_command(u8 cmd0, u8 cmd1, u8 cmd2)
 
 static int cs752x_nand_erase_block(struct mtd_info *mtd, int page)
 {
-	struct nand_chip *this = mtd->priv;
+	struct nand_chip *this = mtd_to_nand(mtd);
 	u64 test;
 	unsigned long	timeo;
 	u32 ul_cmd;
@@ -1035,9 +1035,6 @@ static int cs752x_nand_read_subpage(struct mtd_info *mtd,
 int cs752x_hw_nand_correct_data(struct mtd_info *mtd, unsigned char *buf,
 		      unsigned char *read_ecc, unsigned char *calc_ecc)
 {
-	/* unsigned char b0, b1, b2, bit_addr; */
-	/* unsigned int byte_addr; */
-	/* struct nand_chip *chip = mtd->priv; */
 	/* 256 or 512 bytes/ecc  */
 	/* const uint32_t eccsize_mult = (chip->ecc.size) >> 8;//eccsize >> 8; */
 	/* int eccsize = chip->ecc.size */
@@ -1047,8 +1044,8 @@ int cs752x_hw_nand_correct_data(struct mtd_info *mtd, unsigned char *buf,
 	 * so keep them in a local var
 	 */
 	/* middle not yet */
-	return 1;
 
+	return 1;
 }
 
 /**
@@ -1061,12 +1058,8 @@ int cs752x_hw_nand_correct_data(struct mtd_info *mtd, unsigned char *buf,
 int cs752x_hw_nand_calculate_ecc(struct mtd_info *mtd, const unsigned char *buf,
 		       unsigned char *code)
 {
-	/* int i; */
-	/* const uint32_t *bp = (uint32_t *)buf; */
 	/* 256 or 512 bytes/ecc  */
 	/* const uint32_t eccsize_mult = */
-	/* 		(((struct nand_chip *)mtd->priv)->ecc.size) >> 8; */
-	/* uint32_t cur;		 current value in buffer  */
 	/* rp0..rp15..rp17 are the various accumulated parities (per byte) */
 	/* middle not yet */
 
@@ -1817,7 +1810,7 @@ static void fill_bch_oob_data(struct mtd_info *mtd, struct nand_chip *chip)
 
 	/* erase tag */
 	{
-	struct oobregion region;
+	struct mtd_oob_region region;
 	mtd_ooblayout_free(mtd, BCH_ERASE_TAG_SECTION, &region);
 	chip->oob_poi[region.offset + region.length] = 0;
 	}
@@ -2245,7 +2238,7 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 	{
-	struct oobregion region;
+	struct mtd_oob_region region;
 	mtd_ooblayout_free(mtd, BCH_ERASE_TAG_SECTION, &region);
 	if (chip->oob_poi[region.offset + region.length] == (u8)0xFF){
 		/*  Erase tag is on , No needs to check. */
@@ -2373,7 +2366,7 @@ static int cs752x_nand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 
 static int cs752x_configure_for_chip(struct mtd_info *mtd)
 {
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 	int err = 0;
 
 #ifdef CONFIG_CS752X_NAND_ECC_HW_BCH
@@ -2601,7 +2594,7 @@ static void do_param_cmd(struct nand_chip *chip, int col)
 static void cs752x_nand_command(struct mtd_info *mtd, unsigned int command,
 			 int column, int page_addr)
 {
-	register struct nand_chip *chip = mtd->priv;
+	register struct nand_chip *chip = mtd_to_nand(mtd);
 	int ctrl = NAND_CTRL_CLE | NAND_CTRL_CHANGE;
 	u32	ul_cmd;
 
@@ -2835,7 +2828,7 @@ static void cs752x_nand_select_chip(struct mtd_info *mtd, int chip)
 */
 static int cs752x_nand_dev_ready(struct mtd_info *mtd)
 {
-	struct nand_chip *chip = mtd->priv;
+	struct nand_chip *chip = mtd_to_nand(mtd);
 	int ready, old_sts;
 
 	check_flash_ctrl_status();
@@ -3007,13 +3000,9 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 		err = -ENOMEM;
 		goto err_mtd;
 	}
+	this = cs752x_host->nand_chip;
 
-	cs752x_host->mtd = (struct mtd_info *)kzalloc(sizeof(struct mtd_info), GFP_KERNEL);
-	if (!cs752x_host->mtd) {
-		printk("Unable to allocate CS752X NAND MTD INFO structure.\n");
-		err = -ENOMEM;
-		goto err_mtd;
-	}
+	cs752x_host->mtd = nand_to_mtd(this);
 	mtd = cs752x_host->mtd;
 
 #ifdef CSW_USE_DMA
@@ -3022,10 +3011,7 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	}
 #endif
 
-	this = (struct nand_chip *)(cs752x_host->nand_chip);
-
 	/* Link the private data with the MTD structure */
-	mtd->priv = this;
 	mtd->owner = THIS_MODULE;
 
 	platform_set_drvdata(pdev, cs752x_host);

@@ -186,5 +186,13 @@
 			clocks = <&mainclk CS75XX_CLK_APB>;
 			status = "disabled";
 		};
+
+		nandc: nand@0xF0050000 {
+			compatible = "cortina,cs752x-nand";
+			reg = <0xE0000000 0x08000000>,	/* NAND memory DMA space */
+				<0xF0050000 0x300>,	/* NAND controller */
+				<0xF0090400 0x300>;	/* DMA_DMA_SSP */
+			status = "disabled";
+		};
 	};
 };
