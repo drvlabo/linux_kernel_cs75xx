@@ -1454,7 +1454,7 @@ out_copy_done:
 	{
 	struct mtd_oob_region region;
 	mtd_ooblayout_free(mtd, BCH_ERASE_TAG_SECTION, &region);
-	chip->oob_poi[region.offset] = 0;
+	chip->oob_poi[region.offset + region.length] = 0;
 	}
 #endif
 
@@ -1784,7 +1784,6 @@ static int cs752x_nand_read_page_raw(struct mtd_info *mtd, struct nand_chip *chi
 	return cs752x_nand_read_page(mtd, chip, buf, oob_required, page);
 }
 
-
 #ifdef CONFIG_CS752X_NAND_ECC_HW_BCH
 
 static void fill_bch_oob_data(struct mtd_info *mtd, struct nand_chip *chip)
@@ -1818,8 +1817,9 @@ static void fill_bch_oob_data(struct mtd_info *mtd, struct nand_chip *chip)
 
 	/* erase tag */
 	{
-	u8 zerobuf[1] = {0};
-	mtd_ooblayout_set_databytes(mtd, zerobuf, chip->oob_poi, 0, 1);
+	struct oobregion region;
+	mtd_ooblayout_free(mtd, BCH_ERASE_TAG_SECTION, &region);
+	chip->oob_poi[region.offset + region.length] = 0;
 	}
 }
 
@@ -1871,7 +1871,7 @@ static void bch_correct(struct mtd_info *mtd, struct nand_chip *chip, uint8_t *b
 
 		switch (bch_sts.bf.bchDecStatus) {
 		case BCH_CORRECTABLE_ERR:
-			for (j = 0; j < ((bch_sts.bf.bchErrNum + 1) / 2); j++) {
+			for (j = 0 ; j < ((bch_sts.bf.bchErrNum + 1) / 2); j++) {
 				bch_err_loc01.wrd = fl_readl(FLASH_NF_BCH_ERROR_LOC01 + j * 4);
 
 				if ((j + 1) * 2 <= bch_sts.bf.bchErrNum) {
@@ -1910,7 +1910,7 @@ static void fill_hamming_oob_data(struct nand_chip *chip, struct mtd_info *mtd)
 	u32 *eccpos = chip->ecc.layout->eccpos;
 	int eccsteps = chip->ecc.steps;
 	int eccbytes = chip->ecc.bytes;
-	u32	ul_ecc_gen0;
+	u32 ul_ecc_gen0;
 	u8 *ecc_calc = chip->buffers->ecccalc;
 
 	for (i = 0, j = 0; eccsteps; eccsteps--, i++, j += eccbytes) {
@@ -1921,7 +1921,6 @@ static void fill_hamming_oob_data(struct nand_chip *chip, struct mtd_info *mtd)
 	}
 	mtd_ooblayout_set_eccbytes(mtd, ecc_calc, chip->ecc_poi, 0, chip->ecc.total);
 }
-
 #endif	/* CONFIG_CS752X_NAND_ECC_HW_HAMMING */
 
 static void configure_hwecc_reg(int is_write)
@@ -2246,9 +2245,9 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 
 #ifdef	CONFIG_CS752X_NAND_ECC_HW_BCH
 	{
-	u8 tmpbuf[1];
-	mtd_ooblayout_get_databytes(mtd, tmpbuf, chip->oob_poi, 0, 1);
-	if ((u8)0xff == tmpbuf[0]){
+	struct oobregion region;
+	mtd_ooblayout_free(mtd, BCH_ERASE_TAG_SECTION, &region);
+	if (chip->oob_poi[region.offset + region.length] == (u8)0xFF){
 		/*  Erase tag is on , No needs to check. */
 		goto BCH_EXIT;
 	}
