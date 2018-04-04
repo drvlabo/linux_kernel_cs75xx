@@ -2722,6 +2722,7 @@ static void cs752x_nand_command(struct mtd_info *mtd, unsigned int command,
 	case NAND_CMD_ERASE1:
 		add_to_command_cache(NAND_CMD_ERASE1);
 		cs752x_host->page = page_addr;
+		return;
 		break;
 	case NAND_CMD_ERASE2:
 		if ((cs752x_host->cmd_cnt == 1) && (cs752x_host->cmd_array[0] == NAND_CMD_ERASE1)) {
@@ -2868,6 +2869,20 @@ static void cs752x_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 				   unsigned int ctrl)
 {
 	/* NOP */
+}
+
+static int cs752x_onfi_get_features(struct mtd_info *mtd,
+				      struct nand_chip *chip, int addr,
+				      u8 *subfeature_param)
+{
+	return -EOPNOTSUPP;
+}
+
+static int cs752x_onfi_set_features(struct mtd_info *mtd,
+				      struct nand_chip *chip, int addr,
+				      u8 *subfeature_param)
+{
+	return -EOPNOTSUPP;
 }
 
 #ifdef CSW_USE_DMA
@@ -3072,6 +3087,9 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 #endif
 	this->write_buf		= cs752x_nand_write_buf;
 	this->read_buf		= cs752x_nand_read_buf;
+
+	this->onfi_get_features	= cs752x_onfi_get_features;
+	this->onfi_set_features	= cs752x_onfi_set_features;
 
 	/* set the bad block tables to support debugging */
 	this->bbt_td = &cs752x_bbt_main_descr;
