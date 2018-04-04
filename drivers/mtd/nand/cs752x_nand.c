@@ -3095,6 +3095,8 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	this->bbt_td = &cs752x_bbt_main_descr;
 	this->bbt_md = &cs752x_bbt_mirror_descr;
 
+	this->options |= NAND_NO_SUBPAGE_WRITE;
+
 	if (!this->controller) {
 		this->controller = &this->hwcontrol;
 		spin_lock_init(&this->controller->lock);
@@ -3112,6 +3114,8 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	err = nand_scan_tail(mtd);
 	if (err)
 		goto err_scan;
+
+printk("%s: subpagesize = %d\n", __func__, this->subpagesize);
 
 	mtd->name = "cs752x_nand_flash";
 	mtd_device_register(cs752x_host->mtd, NULL, 0);
