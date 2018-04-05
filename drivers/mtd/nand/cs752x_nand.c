@@ -1295,7 +1295,7 @@ static int cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *ch
 	u32 addr_cnt;
 	uint8_t *vaddr;
 
-oob_required = true;
+///oob_required = true;
 
 	check_flash_ctrl_status();
 
@@ -1523,7 +1523,7 @@ static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 	u32 addr_cnt;
 	uint8_t *vaddr;
 
-oob_required = true;
+///oob_required = true;
 
 #ifdef CSW_USE_DMA
 
@@ -1756,7 +1756,7 @@ out_copy_done:
 static int cs752x_nand_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
 			      uint8_t *buf, int oob_required, int page)
 {
-oob_required = true;
+///oob_required = true;
 
 	check_flash_ctrl_status();
 
@@ -1972,8 +1972,6 @@ static int cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *
 	u32	addr_cnt;
 	uint8_t *vaddr;
 
-oob_required = true;
-	
 	page = g_nand_page;
 	col = g_nand_col;
 
@@ -2212,7 +2210,8 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 	u32 ul_ecc_gen0;
 #endif
 
-oob_required = true;
+	/* ### note ### : Here, must be true */
+	oob_required = true;
 
 	col  = g_nand_col;
 	p = buf;
@@ -2329,7 +2328,7 @@ static int cs752x_nand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 {
 	int status;
 
-oob_required = true;
+///oob_required = true;
 
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, 0x00, page);
 
