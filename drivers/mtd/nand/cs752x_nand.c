@@ -54,7 +54,7 @@
 
 
 
-#define	CSW_USE_DMA
+///#define	CSW_USE_DMA
 
 
 
@@ -67,10 +67,8 @@ struct cs752x_nand_host {
 	struct device		*dev;
 
 	void __iomem*		iobase_fl;
-#ifdef CSW_USE_DMA
 	void __iomem*		iobase_dma_ssp;
 	u32			dma_phy_base;
-#endif
 
 	/* NAND command and parameter caching, before submitting */
 	unsigned int		cmd_array[CS75XX_CMD_MAX_NUM];
@@ -1297,6 +1295,8 @@ static int cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *ch
 	u32 addr_cnt;
 	uint8_t *vaddr;
 
+oob_required = true;
+
 	check_flash_ctrl_status();
 
 	page = g_nand_page;
@@ -1522,6 +1522,8 @@ static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 	u32 ul_addr2;
 	u32 addr_cnt;
 	uint8_t *vaddr;
+
+oob_required = true;
 
 #ifdef CSW_USE_DMA
 
@@ -1754,6 +1756,8 @@ out_copy_done:
 static int cs752x_nand_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
 			      uint8_t *buf, int oob_required, int page)
 {
+oob_required = true;
+
 	check_flash_ctrl_status();
 
 	ecc_reset.wrd = 0;
@@ -1967,6 +1971,8 @@ static int cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *
 	u32	ul_addr2;
 	u32	addr_cnt;
 	uint8_t *vaddr;
+
+oob_required = true;
 	
 	page = g_nand_page;
 	col = g_nand_col;
@@ -2206,6 +2212,8 @@ static int cs752x_nand_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *c
 	u32 ul_ecc_gen0;
 #endif
 
+oob_required = true;
+
 	col  = g_nand_col;
 	p = buf;
 
@@ -2320,6 +2328,8 @@ static int cs752x_nand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 			int oob_required, int page, int cached, int raw)
 {
 	int status;
+
+oob_required = true;
 
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, 0x00, page);
 
@@ -2712,6 +2722,7 @@ static void cs752x_nand_command(struct mtd_info *mtd, unsigned int command,
 	case NAND_CMD_ERASE1:
 		add_to_command_cache(NAND_CMD_ERASE1);
 		cs752x_host->page = page_addr;
+		return;
 		break;
 	case NAND_CMD_ERASE2:
 		if ((cs752x_host->cmd_cnt == 1) && (cs752x_host->cmd_array[0] == NAND_CMD_ERASE1)) {
@@ -2732,6 +2743,7 @@ static void cs752x_nand_command(struct mtd_info *mtd, unsigned int command,
 
 	case NAND_CMD_PAGEPROG:
 	case NAND_CMD_SEQIN:
+	case NAND_CMD_READ0:
 		/*
 		 * Write out the command to the device.
 		 */
@@ -2858,6 +2870,20 @@ static void cs752x_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 				   unsigned int ctrl)
 {
 	/* NOP */
+}
+
+static int cs752x_onfi_get_features(struct mtd_info *mtd,
+				      struct nand_chip *chip, int addr,
+				      u8 *subfeature_param)
+{
+	return -EOPNOTSUPP;
+}
+
+static int cs752x_onfi_set_features(struct mtd_info *mtd,
+				      struct nand_chip *chip, int addr,
+				      u8 *subfeature_param)
+{
+	return -EOPNOTSUPP;
 }
 
 #ifdef CSW_USE_DMA
@@ -3063,9 +3089,18 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	this->write_buf		= cs752x_nand_write_buf;
 	this->read_buf		= cs752x_nand_read_buf;
 
+	this->onfi_get_features	= cs752x_onfi_get_features;
+	this->onfi_set_features	= cs752x_onfi_set_features;
+
 	/* set the bad block tables to support debugging */
 	this->bbt_td = &cs752x_bbt_main_descr;
 	this->bbt_md = &cs752x_bbt_mirror_descr;
+
+	this->options |= NAND_NO_SUBPAGE_WRITE;
+	/*
+	 * ### note ###
+	 * do not enable NAND_SUBPAGE_READ
+	 */
 
 	if (!this->controller) {
 		this->controller = &this->hwcontrol;
