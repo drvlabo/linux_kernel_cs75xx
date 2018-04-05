@@ -2743,6 +2743,7 @@ static void cs752x_nand_command(struct mtd_info *mtd, unsigned int command,
 
 	case NAND_CMD_PAGEPROG:
 	case NAND_CMD_SEQIN:
+	case NAND_CMD_READ0:
 		/*
 		 * Write out the command to the device.
 		 */
@@ -3095,7 +3096,7 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	this->bbt_td = &cs752x_bbt_main_descr;
 	this->bbt_md = &cs752x_bbt_mirror_descr;
 
-	this->options |= NAND_NO_SUBPAGE_WRITE;
+	this->options |= NAND_NO_SUBPAGE_WRITE | NAND_SUBPAGE_READ;
 
 	if (!this->controller) {
 		this->controller = &this->hwcontrol;
@@ -3114,8 +3115,6 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	err = nand_scan_tail(mtd);
 	if (err)
 		goto err_scan;
-
-printk("%s: subpagesize = %d\n", __func__, this->subpagesize);
 
 	mtd->name = "cs752x_nand_flash";
 	mtd_device_register(cs752x_host->mtd, NULL, 0);
