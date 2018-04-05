@@ -3096,7 +3096,11 @@ static int __init cs752x_nand_probe(struct platform_device *pdev)
 	this->bbt_td = &cs752x_bbt_main_descr;
 	this->bbt_md = &cs752x_bbt_mirror_descr;
 
-	this->options |= NAND_NO_SUBPAGE_WRITE | NAND_SUBPAGE_READ;
+	this->options |= NAND_NO_SUBPAGE_WRITE;
+	/*
+	 * ### note ###
+	 * do not enable NAND_SUBPAGE_READ
+	 */
 
 	if (!this->controller) {
 		this->controller = &this->hwcontrol;
