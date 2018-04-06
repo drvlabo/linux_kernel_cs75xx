@@ -120,3 +120,7 @@
 	status = "ok";
 };
 #endif
+
+&nandc {
+	status = "ok";
+};
