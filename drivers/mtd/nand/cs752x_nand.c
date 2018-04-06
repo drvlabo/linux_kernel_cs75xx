@@ -1346,6 +1346,7 @@ static int cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *ch
 #ifdef CSW_USE_DMA
 	addr = cs752x_host->dma_phy_base + ((page << chip->page_shift) % SZ_128M);
 
+#if 0	/* trial: removed */
 	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
 	 * length is 64 bytes. --> for vmalloc not kmalloc
 	 */
@@ -1363,6 +1364,8 @@ static int cs752x_nand_write_page_raw(struct mtd_info *mtd, struct nand_chip *ch
 
 	}
 	goto out_copy_done;
+#endif	/* trial */
+
 out_copy:
 	vaddr = buf;
 	chip->pagebuf = -1;
@@ -1581,6 +1584,7 @@ static int noinline cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip
 #ifdef CSW_USE_DMA
 	addr = cs752x_host->dma_phy_base + ((page << chip->page_shift) % SZ_128M);
 
+#if 0	/* trial: removed */
 	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
 	 * length is 64 bytes. --> for vmalloc not kmalloc
 	 */
@@ -1597,6 +1601,7 @@ static int noinline cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip
 		buf = page_address(p1) + ((size_t)buf & ~PAGE_MASK);
 	}
 	goto out_copy_done;
+#endif	/* trial */
 
 out_copy:
 	vaddr = buf;
@@ -2018,6 +2023,8 @@ static int cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *
 #ifdef CSW_USE_DMA
 	addr = cs752x_host->dma_phy_base + ((page << chip->page_shift) % SZ_128M);
 
+#if 0	/* trial: removed */
+
 	/* The fifo depth is 64 bytes. We have a sync at each frame and frame
 	 * length is 64 bytes. --> for vmalloc not kmalloc
 	 */
@@ -2034,6 +2041,8 @@ static int cs752x_nand_write_page_hwecc(struct mtd_info *mtd, struct nand_chip *
 
 	}
 	goto out_copy_done;
+#endif	/* trial */
+
 out_copy:
 	vaddr = buf;
 	chip->pagebuf = -1;
