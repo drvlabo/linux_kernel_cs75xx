@@ -54,7 +54,7 @@
 
 
 
-///#define	CSW_USE_DMA
+#define	CSW_USE_DMA
 
 
 
@@ -621,7 +621,7 @@ static DMA_SSP_TX_DESC_T *tx_desc;
 static DMA_SSP_RX_DESC_T *rx_desc;
 
 #define FDMA_DEPTH	3
-#define FDMA_DESC_NUM	(1 << FDMA_DEPTH) 
+#define FDMA_DESC_NUM	(1 << FDMA_DEPTH)
 
 #define OWN_DMA	0
 #define OWN_SW	1
@@ -851,21 +851,21 @@ static cs_status_t cs752x_nand_pwr_notifier(cs_pm_freq_notifier_data_t *data)
 {
 	struct nand_chip *chip = cs752x_host->nand_chip;
 	struct mtd_info *mtd = cs752x_host->mtd;
-	
+
 	if (data->event == CS_PM_FREQ_PRECHANGE) {
 
 		nand_get_device(chip, mtd, FL_FREQ_CHANGE);
-			
-		//printk(KERN_ERR ">>>start %x! per %d -> %d, axi %d -> %d \n", 
+
+		//printk(KERN_ERR ">>>start %x! per %d -> %d, axi %d -> %d \n",
 		//(int)data->data,
 		//data->old_peripheral_clk, data->new_peripheral_clk,
 		//data->old_axi_clk, data->new_axi_clk);
 
-		
+
 	} else if (data->event == CS_PM_FREQ_POSTCHANGE) {
 
 		nand_release_device(mtd);
-		//printk(KERN_ERR "<<<stop %x! per %d -> %d, axi %d -> %d \n", 
+		//printk(KERN_ERR "<<<stop %x! per %d -> %d, axi %d -> %d \n",
 		//       (int)data->data,
 		//       data->old_peripheral_clk, data->new_peripheral_clk,
 		//       data->old_axi_clk, data->new_axi_clk);
@@ -911,7 +911,7 @@ static void check_flash_ctrl_status(void)
 {
 	unsigned long	timeo;
 	unsigned int	val;
-	
+
 	timeo = jiffies + HZ;
 	do {
 		val = fl_readl(FLASH_STATUS);
@@ -976,14 +976,14 @@ static int cs752x_nand_erase_block(struct mtd_info *mtd, int page)
 	flash_start.bf.nflashRegReq = FLASH_GO;
 	flash_start.bf.nflashRegCmd = FLASH_RD;	/* no data access use read.. */
 	fl_writel(FLASH_FLASH_ACCESS_START, flash_start.wrd);
-	
+
 	timeo = jiffies + HZ;
 	do {
 		flash_start.wrd = fl_readl(FLASH_FLASH_ACCESS_START);
 		if(!flash_start.bf.nflashRegReq)
 			return 0;
 	} while (time_before(jiffies, timeo));
-	
+
 	return 0;
 }
 
@@ -1513,7 +1513,7 @@ out_copy_done:
 
 /*
  */
-static int cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
+static int noinline cs752x_nand_read_page(struct mtd_info *mtd, struct nand_chip *chip,
 			      uint8_t *buf, int oob_required, int page)
 {
 	unsigned int addr;
@@ -1668,6 +1668,10 @@ out_copy_done:
 
 	dma_map_single(NULL, (void *)buf, mtd->writesize, DMA_FROM_DEVICE);
 	wmb();
+
+	if (vaddr != 0) {
+		memcpy(vaddr, buf, mtd->writesize);
+        }
 
 	/******************************************************/
 
@@ -3158,7 +3162,7 @@ static int __exit cs752x_nand_remove(struct platform_device *pdev)
 
 	mtd_device_unregister(cs752x_host->mtd);
 
-#ifdef NO_NEED	
+#ifdef NO_NEED
 	cs_pm_freq_unregister_notifier(&n);
 #endif
 
