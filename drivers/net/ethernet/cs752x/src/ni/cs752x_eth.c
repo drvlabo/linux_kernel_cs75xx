@@ -397,6 +397,7 @@ void __iomem*	g_iobase_fe;
 void __iomem*	g_iobase_qm;
 void __iomem*	g_iobase_tm;
 void __iomem*	g_iobase_sch;
+void __iomem*	g_iobase_xram;
 
 static int	g_irq_eth[GE_PORT_NUM];
 static int	g_irq_global;
@@ -1061,7 +1062,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 	CPU_HEADER1_T xram_cpu_hdr1;
 	struct sk_buff *skb, *tmp_skb = NULL, *tail_skb = NULL;
 	u32 hw_wr_ptr, next_link, tmp_data, *tmp_ptr, refill_cnt = 0;
-	u32 jumbo_pkt_index = 0, seg_len, *xram_ptr = (u32 *)NI_XRAM_BASE;
+	u32 jumbo_pkt_index = 0, seg_len, *xram_ptr = (u32 *)g_iobase_xram;
 	mac_info_t *tp = NULL;
 	int pkt_len, done = 0;
 #ifdef CONFIG_CS752X_VIRTUAL_NETWORK_INTERFACE
@@ -1102,7 +1103,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			printk("%s:%d:something is not right! skb@0x%x, "
 					"tmp_ptr@0x%x\n", __func__, __LINE__,
 					(u32)skb, (u32)tmp_ptr);
-			xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+			xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 			refill_cnt++;
 			continue;
 		}
@@ -1219,7 +1220,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			/* error happens with this packet, jump to next
 			 * packet! */
 			dev_kfree_skb(skb);
-			xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+			xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 			refill_cnt++;
 			continue;
 		}
@@ -1555,7 +1556,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 		if (err_virt_ni < 0) {
 			skb->dev = in_dev;
 			dev_kfree_skb(skb);
-			xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+			xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 			continue;
 		}
 #endif
@@ -1778,7 +1779,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 SKB_HANDLED:
 
 		done++;
-		xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+		xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 	} /* end of while loop */
 
 	NI_WRITEL(next_link, NI_TOP_NI_CPUXRAM_CPU_CFG_RX_0 + (instance * 24));
@@ -1810,7 +1811,7 @@ static int has_many_rx_packets( int instance, int waterlevel)
 	hw_wr_ptr &= HW_WR_PTR;
 	next_link = (NI_READL(NI_TOP_NI_CPUXRAM_CPU_CFG_RX_0 + (instance * 24)));
 	next_link &= SW_RD_PTR;
-	xram_ptr = (u32 *) NI_XRAM_BASE + next_link * 2;
+	xram_ptr = (u32 *) g_iobase_xram + next_link * 2;
 
 	while ((next_link != hw_wr_ptr) && (done < waterlevel)) {
 		hdr_x = (HEADER_XR_T *) xram_ptr;
@@ -1818,7 +1819,7 @@ static int has_many_rx_packets( int instance, int waterlevel)
 			break;
 
 		next_link = hdr_x->bits.next_link;
-		xram_ptr = (u32 *) NI_XRAM_BASE + next_link * 2;
+		xram_ptr = (u32 *) g_iobase_xram + next_link * 2;
 		++done;
 	}
 
@@ -3022,7 +3023,7 @@ static void cs_ni_init_xram_mem(void)
 	NI_TOP_NI_CPUXRAM_ADRCFG_TX_0_t xram_tx_addr, xram_tx_addr_mask;
 
 	ni = &ni_private_data;
-	ni_xram_base = (u32 *)NI_XRAM_BASE;
+	ni_xram_base = (u32 *)g_iobase_xram;
 
 	/* clear XRAM */
 	for (i = 0; i <= XRAM_RX_INSTANCE; i++)
@@ -4690,10 +4691,8 @@ int cs_ni_open(struct net_device *dev)
 #ifdef CONFIG_CS75XX_KTHREAD_RX
 			init_rx_task( irq_to_idx(tmp_dev->irq) );
 #endif
-///#ifdef NOT_YET
 			retval += request_irq(tmp_dev->irq, cs_ni_rx_interrupt,
 					0 /* IRQF_SHARED */, tmp_dev->name, tmp_dev);
-///#endif
 			tmp_tp = netdev_priv(tmp_dev);
 #ifdef CS752X_NI_NAPI
 			napi_enable(&tmp_tp->napi);
@@ -4711,10 +4710,8 @@ int cs_ni_open(struct net_device *dev)
 	cs_ni_init_port(dev);
 	cs_ni_set_short_term_shaper(tp);
 
-///#ifdef NOT_YET
 	retval = request_irq(tp->irq, cs_ni_rx_interrupt,
 				0 /* IRQF_SHARED */, dev->name, dev);
-///#endif
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
 	init_rx_task( irq_to_idx(tp->irq) );
@@ -4735,11 +4732,9 @@ int cs_ni_open(struct net_device *dev)
 
 	if (ne_irq_register == 0) {
 #if defined(CONFIG_GENERIC_IRQ)
-///#ifdef NOT_YET
 		retval += request_irq(g_irq_global, ni_generic_interrupt,
 				0 /* IRQF_SHARED */, "NI generic",
 				(struct net_device *)&ni_private_data);
-///#endif
 #endif
 #ifdef CS752X_NI_TX_COMPLETE_INTERRUPT
 		for (jj = 0; jj < 6; jj++)
@@ -6408,6 +6403,18 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 		goto l_resource_err;
 	}
 	g_iobase_sch = ioaddr;
+
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "xram");
+	if (!r){
+		printk("get_resource failed at XRAM region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at XRAM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_xram = ioaddr;
 
 	/* get IRQ resources */
 	for(i = 0 ; i < GE_PORT_NUM ; i++) {
