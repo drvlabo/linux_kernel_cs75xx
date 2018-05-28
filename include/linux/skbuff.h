@@ -801,6 +801,16 @@ struct sk_buff {
 	sk_buff_data_t		end;
 	unsigned char		*head,
 				*data;
+#ifdef CONFIG_ARCH_GOLDENGATE
+#if 1 //CONFIG_SKB_UNCACHABLE_DATA
+	dma_addr_t		head_pa;
+#endif
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	unsigned char		*map_end;
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+	/*for HW ACCELERATION cs_cb poitner */
+	__u32			cs_cb_loc;
+#endif /* CONFIG_ARCH_GOLDENGATE */
 	unsigned int		truesize;
 	atomic_t		users;
 };
