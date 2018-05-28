@@ -124,3 +124,7 @@
 &nandc {
 	status = "ok";
 };
+
+&ether {
+	status = "ok";
+};
