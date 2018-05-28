@@ -201,11 +201,13 @@
 			reg = <0xF0000000 0x100>,
 				<0xF0010000 0x500>, <0xF00700A0 0x48>,
 				<0xF0090000 0x400>, <0xF0020000 0x4000>, 
-				<0xF0030000 0x400>, <0xF0040000 0x800>, <0xF0060000 0x100>;
+				<0xF0030000 0x400>, <0xF0040000 0x800>, <0xF0060000 0x100>,
+				<0xF0400000 0x100000>;
 			reg-names = "global",
 					"ni", "mdio",
 					"dma_lso", "fe",
-					"qm", "tm", "sch";
+					"qm", "tm", "sch",
+					"xram";
 
 			interrrupt-parent = <&gic>;
 			interrupts = <GIC_SPI 1 4>,
