@@ -4484,6 +4484,35 @@ static inline int cs_ni_has_work(int instance)
 }
 #endif
 
+static int irq_to_idx(int irq)
+{
+	int i;
+	int res = -1;
+
+	for (i = 0 ; i < GE_PORT_NUM ; i++) {
+		if (irq == g_irq_eth[i]) {
+			res = i;
+			goto l_exit;
+		}
+	}
+#if 0
+	if (irq == g_irq_ni_wfo_pe0)
+		res = IRQ_NI_RX_XRAM3 - IRQ_NI_RX_XRAM0;
+	else if  (irq == g_irq_ni_wfo_pe1)
+		res = IRQ_NI_RX_XRAM4 - IRQ_NI_RX_XRAM0;
+	else if  (irq == g_irq_ni_wfo)
+		res = IRQ_NI_RX_XRAM5 - IRQ_NI_RX_XRAM0;
+	else
+#endif
+	if (irq == g_irq_ni_pe)
+		res = IRQ_NI_RX_XRAM6 - IRQ_NI_RX_XRAM0;
+	else if (irq == g_irq_ni_arp)
+		res = IRQ_NI_RX_XRAM7 - IRQ_NI_RX_XRAM0;
+
+  l_exit:;
+	return res;
+}
+
 /*
  * Handles RX interrupts.
  */
@@ -4499,7 +4528,7 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 
 	const int map[] = { 0, 1, 2, 5, 6 };
 
-	i = irq - IRQ_NI_RX_XRAM0;
+	i = irq_to_idx(irq);
 	status = NI_READL(NI_TOP_NI_CPUXRAM_RXPKT_0_INTERRUPT_0 + i * 8);
 
 	if (status == 0)
@@ -4529,7 +4558,7 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 	}
 #else
 
-	i = irq - IRQ_NI_RX_XRAM0;
+	i = irq_to_idx(irq);
 	status = NI_READL(NI_TOP_NI_CPUXRAM_RXPKT_0_INTERRUPT_0 + i * 8);
 	if (status != 0) {
 		NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
@@ -4659,18 +4688,18 @@ int cs_ni_open(struct net_device *dev)
 		for (jj = GE_PORT_NUM; jj < CS_NI_IRQ_DEV; jj++) {
 			tmp_dev = ni_private_data.dev[jj];
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-			init_rx_task( tmp_dev->irq - IRQ_NI_RX_XRAM0);
+			init_rx_task( irq_to_idx(tmp_dev->irq) );
 #endif
-#ifdef NOT_YET
+///#ifdef NOT_YET
 			retval += request_irq(tmp_dev->irq, cs_ni_rx_interrupt,
 					0 /* IRQF_SHARED */, tmp_dev->name, tmp_dev);
-#endif
+///#endif
 			tmp_tp = netdev_priv(tmp_dev);
 #ifdef CS752X_NI_NAPI
 			napi_enable(&tmp_tp->napi);
 #endif
 			NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-					((tmp_tp->irq - IRQ_NI_RX_XRAM0) * 8));
+					irq_to_idx(tmp_tp->irq) * 8);
 		}
 		if (retval != 0) {
 			printk("%s::Error !", __func__);
@@ -4682,13 +4711,13 @@ int cs_ni_open(struct net_device *dev)
 	cs_ni_init_port(dev);
 	cs_ni_set_short_term_shaper(tp);
 
-#ifdef NOT_YET
+///#ifdef NOT_YET
 	retval = request_irq(tp->irq, cs_ni_rx_interrupt,
 				0 /* IRQF_SHARED */, dev->name, dev);
-#endif
+///#endif
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-	init_rx_task( tp->irq - IRQ_NI_RX_XRAM0);
+	init_rx_task( irq_to_idx(tp->irq) );
 #endif
 	if (retval != 0) {
 		printk("%s::Error !", __func__);
@@ -4702,15 +4731,15 @@ int cs_ni_open(struct net_device *dev)
 	/* Enable XRAM Rx interrupts at this point */
 	//cs_ni_enable_xram_intr(tp->port_id, XRAM_DIRECTION_RX);
 	NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-			((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+			(irq_to_idx(tp->irq) * 8));
 
 	if (ne_irq_register == 0) {
 #if defined(CONFIG_GENERIC_IRQ)
-#ifdef NOT_YET
+///#ifdef NOT_YET
 		retval += request_irq(g_irq_global, ni_generic_interrupt,
 				0 /* IRQF_SHARED */, "NI generic",
 				(struct net_device *)&ni_private_data);
-#endif
+///#endif
 #endif
 #ifdef CS752X_NI_TX_COMPLETE_INTERRUPT
 		for (jj = 0; jj < 6; jj++)
@@ -4808,10 +4837,10 @@ int cs_ni_close(struct net_device *dev)
 
 	cancel_tx_completion_timer(dev);
 
-	NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + ((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+	NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + (irq_to_idx(tp->irq) * 8));
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-	exit_rx_kthread( dev->irq - IRQ_NI_RX_XRAM0);
+	exit_rx_kthread( irq_to_idx(dev->irq) );
 #endif
 	if (active_dev == 0) {
 		if (ne_irq_register != 0) {
@@ -4831,10 +4860,10 @@ int cs_ni_close(struct net_device *dev)
 			napi_disable(&tmp_tp->napi);
 #endif
 			NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-					((tmp_tp->irq - IRQ_NI_RX_XRAM0) * 8));
+					(irq_to_idx(tmp_tp->irq) * 8));
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-			exit_rx_kthread( tmp_dev->irq - IRQ_NI_RX_XRAM0);
+			exit_rx_kthread( irq_to_idx(tmp_dev->irq) );
 #endif
 		}
 
@@ -6697,7 +6726,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 						0 /* IRQF_SHARED */, tmp_dev->name, tmp_dev);
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-		init_rx_task( tmp_dev->irq - IRQ_NI_RX_XRAM0);
+		init_rx_task( irq_to_idx(tmp_dev->irq) );
 #endif
 #ifdef CS752X_NI_NAPI
 		tp = netdev_priv(tmp_dev);
@@ -6705,7 +6734,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 		napi_enable(&tp->napi);
 #endif
 		NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-				 ((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+				 (irq_to_idx(tp->irq) * 8));
 	}
 
 	cs75xx_pni_init();
@@ -6791,7 +6820,7 @@ static int cs_ni_cleanup_module_exit(struct platform_device *pdev)
 		tp = netdev_priv(tmp_dev);
 		napi_disable(&tp->napi);
 		NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-				((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+				(irq_to_irx(tp->irq) * 8));
 		free_netdev(tmp_dev);
 	}
 #endif
