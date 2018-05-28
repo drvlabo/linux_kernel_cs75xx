@@ -28,5 +28,5 @@
 
 EXTRA_CFLAGS += -I$(srctree)/drivers/net/ethernet/cs752x/src/include
 
-obj-$(CONFIG_CS752X) += cs_util.o
+obj-$(CONFIG_NET_VENDOR_CS752X) += cs_util.o
 cs_util-objs := cs_table.o

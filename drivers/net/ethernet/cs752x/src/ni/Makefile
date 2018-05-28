@@ -43,7 +43,7 @@ ifdef CONFIG_CS75XX_WFO
 obj-$(CONFIG_CS75XX_WFO) += cs75xx_pni.o
 endif
 
-obj-$(CONFIG_CS752X) += cs_ni.o
+obj-$(CONFIG_NET_VENDOR_CS752X) += cs_ni.o
 cs_ni-objs := cs752x_eth.o cs75xx_ne_irq.o cs75xx_ethtool.o cs75xx_phy.o 
 
 obj-$(CONFIG_CS752X_VIRTUAL_NETWORK_INTERFACE) += cs752x_virt_ni.o

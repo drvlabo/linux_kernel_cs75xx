@@ -30,11 +30,11 @@
 # Makefile for the Cortina CS752x gigabit ethernet driver
 #
 
-obj-$(CONFIG_CS752X) += util/ fe/
-obj-$(CONFIG_CS752X) += ni/
-obj-$(CONFIG_CS752X) += qm/
-obj-$(CONFIG_CS752X) += sch/ tm/
-obj-$(CONFIG_CS752X) += core/
+obj-$(CONFIG_NET_VENDOR_CS752X) += util/ fe/
+obj-$(CONFIG_NET_VENDOR_CS752X) += ni/
+obj-$(CONFIG_NET_VENDOR_CS752X) += qm/
+obj-$(CONFIG_NET_VENDOR_CS752X) += sch/ tm/
+obj-$(CONFIG_NET_VENDOR_CS752X) += core/
 ##obj-$(CONFIG_CS752X_PROC) += diagnostic/
 ##obj-$(CONFIG_CS752X_ACCEL_KERNEL) += kernel_adapt/qos/ kernel_adapt/
 

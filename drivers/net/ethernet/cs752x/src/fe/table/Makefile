@@ -30,7 +30,7 @@ EXTRA_CFLAGS += -I$(srctree)/drivers/net/ethernet/cs752x/src/include
 EXTRA_CFLAGS += -I$(srctree)/drivers/net/ethernet/cs752x/src/fe/include
 EXTRA_CFLAGS += -I$(srctree)/drivers/net/ethernet/cs752x/src/ni
 
-obj-$(CONFIG_CS752X) += cs_fe_table.o
+obj-$(CONFIG_NET_VENDOR_CS752X) += cs_fe_table.o
 cs_fe_table-objs := cs_fe_hw_table.o cs_fe_table_util.o cs_fe_table_generic.o \
 	cs_fe_table_acl.o cs_fe_table_an_bng_mac.o cs_fe_table_class.o \
 	cs_fe_table_etype.o cs_fe_table_fvlan.o cs_fe_table_fwdrslt.o \

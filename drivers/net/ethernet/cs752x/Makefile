@@ -30,7 +30,7 @@
 # Makefile for the Cortina CS752x gigabit ethernet driver
 #
 
-obj-$(CONFIG_CS752X) += src/
+obj-$(CONFIG_NET_VENDOR_CS752X) += src/
 
 
 

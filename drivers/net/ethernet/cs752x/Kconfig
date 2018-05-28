@@ -1,4 +1,4 @@
-config CS752X
+config NET_VENDOR_CS752X
 	bool "Cortina CS752X Gigabit Ethernet support"
 	depends on ARCH_GOLDENGATE
 	---help---
@@ -8,12 +8,12 @@ config CS752X
 
 	  <http://www.cortina-systems.com/>
 
-if CS752X
+if NET_VENDOR_CS752X
 
 config CS752X_HW_INTERNAL_BUFFERS
 	tristate "Cortina CS752X Hardware Internal Buffers - 256kB"
 	default y
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	  When set gigabit ethernet ports and internal recirculation ports will
 	  use onchip memory.  This removes DDR bandwidth consumption for packets
@@ -86,7 +86,7 @@ config CS752X_NR_QMBANK
 choice
 	prompt "Connect which G2 MAC to external switch"
 	default CS75XX_GMAC1_TO_EXT_SWITCH
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 
 config CS75XX_GMAC0_TO_EXT_SWITCH
 	bool "GMAC0"
@@ -104,7 +104,7 @@ endchoice
 choice
 	prompt "GMAC0 Interface"
 	default CS75XX_GMAC0_RGMII_1000
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 
 config CS75XX_GMAC0_MII
 	bool "MII mode"
@@ -122,7 +122,7 @@ endchoice
 config CS75XX_INT_CLK_SRC_RMII_GMAC0
 	bool "Internal clock source in RMII mode of GMAC0"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	Clock source for ports in RMII mode of operation.
 	In RMII mode, reference clock can be sourced from the MAC to PHY or
@@ -134,12 +134,12 @@ config CS75XX_PHY_ADDR_GMAC0
 	int "PHY address of GMAC0 (0-31)"
 	range 0 31
 	default "1"
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 
 choice
 	prompt "GMAC1 Interface"
 	default CS75XX_GMAC1_RGMII_1000
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 
 config CS75XX_GMAC1_MII
 	bool "MII mode"
@@ -157,7 +157,7 @@ endchoice
 config CS75XX_INT_CLK_SRC_RMII_GMAC1
 	bool "Internal clock source in RMII mode of GMAC1"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	Clock source for ports in RMII mode of operation.
 	In RMII mode, reference clock can be sourced from the MAC to PHY or
@@ -169,12 +169,12 @@ config CS75XX_PHY_ADDR_GMAC1
 	int "PHY address of GMAC1 (0-31)"
 	range 0 31
 	default "0"
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 
 choice
 	prompt "GMAC2 Interface"
 	default CS75XX_GMAC2_RGMII_1000
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 
 config CS75XX_GMAC2_MII
 	bool "MII mode"
@@ -192,7 +192,7 @@ endchoice
 config CS75XX_INT_CLK_SRC_RMII_GMAC2
 	bool "Internal clock source in RMII mode of GMAC2"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	Clock source for ports in RMII mode of operation.
 	In RMII mode, reference clock can be sourced from the MAC to PHY or
@@ -204,12 +204,12 @@ config CS75XX_PHY_ADDR_GMAC2
 	int "PHY address of GMAC2 (0-31)"
 	range 0 31
 	default "2"
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 
 config CS752X_ACCEL_KERNEL
 	bool "Cortina CS752X Linux Packet Acceleration"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	  This driver supports Cortina CS752x chip family of kernel adapt modules
 	  for packet acceleration.  For more information on how to identify
@@ -220,7 +220,7 @@ config CS752X_ACCEL_KERNEL
 config CS752X_FASTNET
 	bool "Cortina CS752X FASTNET support"
 	default n
-	depends on CS752X && CS752X_ACCEL_KERNEL
+	depends on NET_VENDOR_CS752X && CS752X_ACCEL_KERNEL
 	---help---
 	  This driver supports Cortina CS752x chip family of fastnet and kernel
 	  adapters.  For more information on how to identify your adapter, go
@@ -231,7 +231,7 @@ config CS752X_FASTNET
 config CS752X_HW_ACCELERATION
 	bool "Cortina CS752X Hardware Acceleration support"
 	default n
-	depends on CS752X && CS752X_ACCEL_KERNEL
+	depends on NET_VENDOR_CS752X && CS752X_ACCEL_KERNEL
 	---help---
 	  This driver supports Cortina CS752x chip family of hardware acceleration
 	  adapters.  For more information on how to identify your adapter, go
@@ -242,7 +242,7 @@ config CS752X_HW_ACCELERATION
 config CS752X_HW_ACCELERATION_IPSEC
 	tristate "Cortina CS752X Hardware IPsec Acceleration support"
 	default n
-	depends on CS752X && CS752X_HW_ACCELERATION
+	depends on NET_VENDOR_CS752X && CS752X_HW_ACCELERATION
 	---help---
 	  This driver supports Cortina CS752x chip family of hardware acceleration
 	  adapters.  For more information on how to identify your adapter, go
@@ -264,7 +264,7 @@ config CS752X_HW_ACCEL_ETHERIP
 config CS75XX_WFO
 	bool "Cortina CS752X WFO support"
 	default n
-	depends on CS752X && CS752X_ACCEL_KERNEL
+	depends on NET_VENDOR_CS752X && CS752X_ACCEL_KERNEL
 	---help---
 	  This driver supports Cortina CS752x chip family of WFO.  For more information 
 	  on how to identify your adapter, go
@@ -275,7 +275,7 @@ config CS75XX_WFO
 config CS75XX_WFO_RT3593
 	tristate "Cortina CS752X WFO RT3593 support"
 	default y
-	depends on CS752X && CS75XX_WFO
+	depends on NET_VENDOR_CS752X && CS75XX_WFO
 	---help---
 	  This driver supports Cortina CS752x chip family of WFO RT3593.  For more information 
 	  on how to identify your adapter, go
@@ -415,7 +415,7 @@ endchoice
 config CS752X_VIRTUAL_NETWORK_INTERFACE
 	bool "Cortina CS752X Virtual Network Interface"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	  This driver supports Cortina CS752x chip family of built-in virtual
 	  network interfaces. For more information on how to identify your
@@ -426,7 +426,7 @@ config CS752X_VIRTUAL_NETWORK_INTERFACE
 choice
 	prompt "Attribute that Virtual Interfaces based on"
 	default CS752X_VIRTUAL_NI_CPUTAG
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
 
 config CS752X_VIRTUAL_NI_CPUTAG
 	bool "Realtek CPU TAG at the end of packet"
@@ -445,7 +445,7 @@ endchoice
 config CS752X_VIRTUAL_ETH0
 	bool "Cortina CS752X Virtual Network Interface on eth0 (MAC#0)"
 	default n
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
 	---help---
 	  This driver supports Cortina CS752x chip family of built-in virtual
 	  network interfaces on eth0.
@@ -454,20 +454,20 @@ config CS752X_NR_VIRTUAL_ETH0
 	int "Number of Virtual Interfaces created on eth0 (1-5)"
 	range 1 5
 	default "4"
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
 		CS752X_VIRTUAL_ETH0
 
 config CS752X_VID_START_ETH0
 	int "The starting VLAN ID for the virtual interfaces (1 - 255)"
 	range 1 255
 	default "100"
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
 		CS752X_VIRTUAL_ETH0 && CS752X_VIRTUAL_NI_DBLTAG
 
 config CS752X_VIRTUAL_ETH1
 	bool "Cortina CS752X Virtual Network Interface on eth1 (MAC#1)"
 	default n
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
 	---help---
 	  This driver supports Cortina CS752x chip family of built-in virtual
 	  network interfaces on eth1.
@@ -476,20 +476,20 @@ config CS752X_NR_VIRTUAL_ETH1
 	int "Number of Virtual Interfaces created on eth1 (1-5)"
 	range 1 5
 	default "4"
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
 		CS752X_VIRTUAL_ETH1
 
 config CS752X_VID_START_ETH1
 	int "The starting VLAN ID for the virtual interfaces (1 - 255)"
 	range 1 255
 	default "100"
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
 		CS752X_VIRTUAL_ETH1 && CS752X_VIRTUAL_NI_DBLTAG
 
 config CS752X_VIRTUAL_ETH2
 	bool "Cortina CS752X Virtual Network Interface on eth2 (MAC#2)"
 	default n
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE
 	---help---
 	  This driver supports Cortina CS752x chip family of built-in virtual
 	  network interfaces on eth2.
@@ -498,20 +498,20 @@ config CS752X_NR_VIRTUAL_ETH2
 	int "Number of Virtual Interfaces created on eth2 (1-4)"
 	range 1 4
 	default "4"
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
 		CS752X_VIRTUAL_ETH2
 
 config CS752X_VID_START_ETH2
 	int "The starting VLAN ID for the virtual interfaces (1 - 255)"
 	range 1 255
 	default "100"
-	depends on CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
+	depends on NET_VENDOR_CS752X && CS752X_VIRTUAL_NETWORK_INTERFACE && \
 		CS752X_VIRTUAL_ETH2 && CS752X_VIRTUAL_NI_DBLTAG
 
 config CS75XX_FE_TBL_MGMT_UT
 	tristate "Unit Test of FE Table Management support"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	  This module support to test table management funtions of
 	  forwarding engine. It covers basic test, boundary test, mixed
@@ -520,21 +520,21 @@ config CS75XX_FE_TBL_MGMT_UT
 config VFS_FASTPATH
 	bool "Cortina VFS fastpath"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	  Allows large packets to be delivered to the TCP stack for VFS
 
 config SMB_TUNING
 	bool "Cortina SMB Tuning"
 	default n
-	depends on CS752X
+	depends on NET_VENDOR_CS752X
 	---help---
 	  Samba read/write performance tuning
 
 config CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
         bool "Cortina Ethernet SW Managed Cache (EXPERIMENTAL)"
         default n
-        depends on CS752X
+        depends on NET_VENDOR_CS752X
         ---help---
           This is an experiemental mode in which software
           manually flushes and invalidates the cache instead of
@@ -543,7 +543,7 @@ config CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 config CS75XX_KTHREAD_RX
         bool "User kthread to receive rx packets instead of NAPI"
         default n
-        depends on CS752X
+        depends on NET_VENDOR_CS752X
         ---help---
           It provides another way to receive rx packets.
           If this option is set, the throught will be down

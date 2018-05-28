@@ -28,7 +28,7 @@
 
 EXTRA_CFLAGS += -I$(srctree)/drivers/net/ethernet/cs752x/src/include -I$(srctree)/drivers/net/ethernet/cs752x/src/fe/include
 
-obj-$(CONFIG_CS752X) += cs_fe_core.o
+obj-$(CONFIG_NET_VENDOR_CS752X) += cs_fe_core.o
 cs_fe_core-objs := libcrc.o cs_crc.o cs_fe_fwdrslt_util.o cs_fe_hash.o\
 	cs_fe_misc_util.o cs_fe_main.o cs_fe_qosrslt_util.o cs_fe_mc.o\
 	cs_fe_l2_rslt_util.o cs_fe_l3_rslt_util.o
