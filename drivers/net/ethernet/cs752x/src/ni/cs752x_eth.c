@@ -398,6 +398,14 @@ void __iomem*	g_iobase_qm;
 void __iomem*	g_iobase_tm;
 void __iomem*	g_iobase_sch;
 
+static int	g_irq_eth[GE_PORT_NUM];
+static int	g_irq_global;
+static int	g_irq_ni_pe;
+static int	g_irq_ni_arp;
+static int	g_irq_ni_wfo_pe0;
+static int	g_irq_ni_wfo_pe1;
+static int	g_irq_ni_wfo;
+
 
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static void clean_skb_recycle_buffer(void)
@@ -4653,8 +4661,10 @@ int cs_ni_open(struct net_device *dev)
 #ifdef CONFIG_CS75XX_KTHREAD_RX
 			init_rx_task( tmp_dev->irq - IRQ_NI_RX_XRAM0);
 #endif
+#ifdef NOT_YET
 			retval += request_irq(tmp_dev->irq, cs_ni_rx_interrupt,
-					IRQF_SHARED, tmp_dev->name, tmp_dev);
+					0 /* IRQF_SHARED */, tmp_dev->name, tmp_dev);
+#endif
 			tmp_tp = netdev_priv(tmp_dev);
 #ifdef CS752X_NI_NAPI
 			napi_enable(&tmp_tp->napi);
@@ -4668,13 +4678,14 @@ int cs_ni_open(struct net_device *dev)
 		}
 	}
 
-
 	/* this cs_ni_init_port is not called at all? */
 	cs_ni_init_port(dev);
 	cs_ni_set_short_term_shaper(tp);
 
+#ifdef NOT_YET
 	retval = request_irq(tp->irq, cs_ni_rx_interrupt,
-				IRQF_SHARED, dev->name, dev);
+				0 /* IRQF_SHARED */, dev->name, dev);
+#endif
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
 	init_rx_task( tp->irq - IRQ_NI_RX_XRAM0);
@@ -4695,9 +4706,11 @@ int cs_ni_open(struct net_device *dev)
 
 	if (ne_irq_register == 0) {
 #if defined(CONFIG_GENERIC_IRQ)
-		retval += request_irq(IRQ_NET_ENG, ni_generic_interrupt,
-				IRQF_SHARED, "NI generic",
+#ifdef NOT_YET
+		retval += request_irq(g_irq_global, ni_generic_interrupt,
+				0 /* IRQF_SHARED */, "NI generic",
 				(struct net_device *)&ni_private_data);
+#endif
 #endif
 #ifdef CS752X_NI_TX_COMPLETE_INTERRUPT
 		for (jj = 0; jj < 6; jj++)
@@ -6268,65 +6281,137 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	FETOP_FE_PRSR_CFG_0_t fe_prsr_cfg0, fe_prsr_cfg0_mask;
 	bool dev_has_phy;
 	void __iomem *ioaddr;
+	struct resource* r;
+	int irq;
 
-#if 1	/* for linux-3.4.x temporarily */
-	ioaddr = ioremap(0xF0000000, 0x100);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "global");
+	if (!r) {
+		printk("get_resource failed at GLOBAL region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at GLOBAL region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_global = ioaddr;
 
-	ioaddr = ioremap(0xF0010000, 0x500);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "ni");
+	if (!r){
+		printk("get_resource failed at NI region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at NI region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_ni = ioaddr;
 
-	ioaddr = ioremap(0xF00700A0, 0xE8 - 0xA0);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "mdio");
+	if (!r){
+		printk("get_resource failed at MDIO region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at MDIO region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_mdio = ioaddr;
 
-	ioaddr = ioremap(0xF0090000, 0x400);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dma_lso");
+	if (!r){
+		printk("get_resource failed at DMA_LSO region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at DMA_LSO region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_dma_lso = ioaddr;
 
-	ioaddr = ioremap(0xF0020000,0x4000);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "fe");
+	if (!r){
+		printk("get_resource failed at FE region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at FE region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_fe = ioaddr;
 
-	ioaddr = ioremap(0xF0030000,0x400);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "qm");
+	if (!r){
+		printk("get_resource failed at QM region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at QM region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_qm = ioaddr;
 
-	ioaddr = ioremap(0xF0040000,0x800);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "tm");
+	if (!r){
+		printk("get_resource failed at TM region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at TM region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_tm = ioaddr;
 
-	ioaddr = ioremap(0xF0060000,0x100);
-	if (!ioaddr) {
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "sch");
+	if (!r){
+		printk("get_resource failed at SCH region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
 		printk("ioremap() failed at SCH region .\n");
-		return -EIO;
+		goto l_resource_err;
 	}
 	g_iobase_sch = ioaddr;
 
-#endif	/* for linux-3.4.x temporarily */
+	/* get IRQ resources */
+	for(i = 0 ; i < GE_PORT_NUM ; i++) {
+		char tmpstr[16];
+		sprintf(tmpstr, "eth%d", i);
+		irq = platform_get_irq_byname(pdev, tmpstr);
+		if (irq < 0) {
+			printk("get_irq failed at %s\n", tmpstr);
+			goto l_resource_err;
+		}
+		g_irq_eth[i] = irq;
+	}
+
+	irq = platform_get_irq_byname(pdev, "generic");
+	if (irq < 0) {
+		printk("get_irq failed at GLOBAL\n");
+		goto l_resource_err;
+	}
+	g_irq_global = irq;
+
+	irq = platform_get_irq_byname(pdev, "pe");
+	if (irq < 0) {
+		printk("get_irq failed at PE\n");
+		goto l_resource_err;
+	}
+	g_irq_ni_pe = irq;
+
+	irq = platform_get_irq_byname(pdev, "arp");
+	if (irq < 0) {
+		printk("get_irq failed at ARP\n");
+		goto l_resource_err;
+	}
+	g_irq_ni_arp = irq;
 
 	/* debug_Aaron 2012/12/11 implement non-cacheable for performace tuning */
 #ifndef CONFIG_CS75XX_WFO
@@ -6371,12 +6456,12 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 #endif
 
 	/* create virtual device for PE and ARP*/
-	cs_ni_init_virtual_instance(CS_NI_IRQ_PE, IRQ_NI_RX_XRAM6, "NI_PE");
-	cs_ni_init_virtual_instance(CS_NI_IRQ_ARP, IRQ_NI_RX_XRAM7, "NI_ARP");
+	cs_ni_init_virtual_instance(CS_NI_IRQ_PE, g_irq_ni_pe, "NI_PE");
+	cs_ni_init_virtual_instance(CS_NI_IRQ_ARP, g_irq_ni_arp, "NI_ARP");
 #ifdef CONFIG_CS75XX_WFO
-	cs_ni_init_virtual_instance(CS_NI_IRQ_WFO_PE0, IRQ_NI_RX_XRAM3, "NI_WFO_PE0");
-	cs_ni_init_virtual_instance(CS_NI_IRQ_WFO_PE1,  IRQ_NI_RX_XRAM4, "NI_WFO_PE1");
-	cs_ni_init_virtual_instance(CS_NI_IRQ_WFO,  IRQ_NI_RX_XRAM5, "NI_WFO");
+	cs_ni_init_virtual_instance(CS_NI_IRQ_WFO_PE0, g_irq_ni_wfo_pe0, "NI_WFO_PE0");
+	cs_ni_init_virtual_instance(CS_NI_IRQ_WFO_PE1,  g_irq_ni_wfo_pe1, "NI_WFO_PE1");
+	cs_ni_init_virtual_instance(CS_NI_IRQ_WFO,  g_irq_ni_wfo, "NI_WFO");
 #endif
 	/* Hold all macs in Normal */
 	for (i = 0; i < GE_PORT_NUM; i++)
@@ -6419,7 +6504,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 		tp->phy_mode = cfg->phy_mode;
 		tp->port_id = cfg->port_id;
 		tp->phy_addr = cfg->phy_addr;
-		tp->irq = cfg->irq;
+		tp->irq = g_irq_eth[i];
 		tp->mac_addr = (u32 *)cfg->mac_addr;
 		tp->rmii_clk_src = cfg->rmii_clk_src;
 		tp->rx_checksum = CS_ENABLE;
@@ -6609,7 +6694,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	for (i = CS_NI_IRQ_WFO_PE0; i <= CS_NI_IRQ_WFO; i++) {
 		tmp_dev = ni_private_data.dev[i];
 		request_irq(tmp_dev->irq, cs_ni_rx_interrupt,
-						IRQF_SHARED, tmp_dev->name, tmp_dev);
+						0 /* IRQF_SHARED */, tmp_dev->name, tmp_dev);
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
 		init_rx_task( tmp_dev->irq - IRQ_NI_RX_XRAM0);
@@ -6629,7 +6714,20 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	cs_init_lpb_an_bng_mac();
 
 	return 0;
+
+  l_resource_err:
+	if (g_iobase_global) {
+		iounmap(g_iobase_global);
+		g_iobase_global = NULL;
+	}
+	if (g_iobase_dma_lso) {
+		iounmap(g_iobase_dma_lso);
+		g_iobase_dma_lso = NULL;
+	}
+	return -ENOMEM;
 }
+
+
 /* 3.4.11 Change for register as platform device */
 /* module_init(cs_ni_init_module); */
 
@@ -6657,6 +6755,7 @@ static int __init get_ni_napi_budget(char *str)
         return 1;
 }
 __setup("ni_napi_budget=", get_ni_napi_budget);
+
 /* 3.4.11 Change for register as platform device */
 static int cs_ni_cleanup_module_exit(struct platform_device *pdev)
 {
@@ -6818,15 +6917,25 @@ cs_status_t cs_pm_ne_resume ( void )
 EXPORT_SYMBOL(cs_pm_ne_resume);
 
 
+static const struct of_device_id cs752x_eth_ids[] = {
+	{ .compatible = "cortina,cs752x-eth" },
+	{}
+};
+
 /* 3.4.11 platform_driver register */
 static struct platform_driver cs_ni_platform_driver = {
 	.probe		= cs_ni_init_module_probe,
 	.remove		= __exit_p(cs_ni_cleanup_module_exit),
 	.driver = {
-		.name		= "g2-ne",
+		.name		= "cs752x-eth",
+#if 0
 		.bus		= &platform_bus_type,
+#endif
 		.owner		= THIS_MODULE,
-		.pm         = CS_DEV_NE_PM_OPS,    //Bug#42747
+#if 0
+		.pm		= CS_DEV_NE_PM_OPS,    //Bug#42747
+#endif
+		.of_match_table	= cs752x_eth_ids,
 	},
 };
 
