@@ -219,6 +219,11 @@
 						"wfo_pe0", "wfo_pe1", "wfo",
 						"pe", "arp";
 			status = "disabled";
+
+			mdio {
+				#address-cells = <1>;
+				#size-cells = <0>;
+			};
 		};
 	};
 };

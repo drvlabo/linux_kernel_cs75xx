@@ -51,6 +51,7 @@
 #include <linux/phy.h>
 #include <linux/workqueue.h>
 #include <linux/ethtool.h>
+#include <linux/of_mdio.h>
 #include "cs_network_types.h"
 #include "cs752x_eth.h"
 #include "cs75xx_ethtool.h"
@@ -5858,9 +5859,10 @@ static int cs_mdio_reset(struct mii_bus *mii_bus)
 	return 0;
 }
 
-static int cs_mdio_init(ni_info_t *ni, mac_info_t * tp)
+static int cs_mdio_init(struct platform_device *pdev, ni_info_t *ni, mac_info_t * tp)
 {
 	int i, err;
+	struct device_node *node;
 
 	if (tp->existed & CS_MDIOBUS_INITED)
 		return 0;
@@ -5892,12 +5894,18 @@ static int cs_mdio_init(ni_info_t *ni, mac_info_t * tp)
 	for (i = 0; i < PHY_MAX_ADDR; i++)
 		tp->mdio_bus->irq[i] = PHY_POLL;
 
+	node = of_get_child_by_name(pdev->dev.of_node, "mdio");
+
 	/*
 	 * The bus registration will look for all the PHYs on the mdio bus.
 	 * Unfortunately, it does not ensure the PHY is powered up before
 	 * accessing the PHY ID registers.
 	 */
-	err = mdiobus_register(tp->mdio_bus);
+	if (node) {
+		err = of_mdiobus_register(tp->mdio_bus, node);
+		of_node_put(node);
+	} else
+		err = mdiobus_register(tp->mdio_bus);
 	if (err)
 		goto err_out_free_mdio_irq;
 
@@ -6608,7 +6616,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 
 		if (dev_has_phy == true) {
 			/* ASIC will autodetect PHY status */
-			err = cs_mdio_init(ni, tp);
+			err = cs_mdio_init(pdev, ni, tp);
 			/* FIXME: need free net_device */
 			if (err)
 				return err;
