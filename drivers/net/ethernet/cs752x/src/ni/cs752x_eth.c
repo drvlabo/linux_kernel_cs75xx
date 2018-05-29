@@ -897,6 +897,7 @@ static int ni_remove_skb_from_list(u32 instance, struct sk_buff *skb)
 #include "../../../../../../net/bridge/br_private.h"
 static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev);
 #define CS_MOD_BRIDGE_SWID (CS_SWID64_MASK(CS_SWID64_MOD_ID_BRIDGE) | 0x49444745)
+
 /* try fast bridgine, cxc */
 int cs752x_fast_bridging(struct sk_buff *skb)
 {
@@ -2310,201 +2311,201 @@ EXPORT_SYMBOL(ni_special_start_xmit_none_bypass_ne);
 #if defined(CS752X_MANAGEMENT_MODE) || defined(CONFIG_CS752X_ACCEL_KERNEL)
 int ni_special_start_xmit(struct sk_buff *skb, HEADER_A_T *header_a, u16 voq)
 {
-		ni_info_t *ni = &ni_private_data;
-		dma_rptr_t rptr_reg;
-		dma_txdesc_t *curr_desc;
-		struct net_device * dev;
-		int snd_pages;
-		int frag_id = 0, len, total_len, tx_qid = 0, lso_tx_qid;
-		//struct net_device_stats *isPtr;
-		u32 free_desc, rptr;
-		dma_addr_t word1;
-		u32 word0, word2, word3 = 0, word4, word5 = 0;
-		dma_swtxq_t *swtxq;
-		ni_header_a_0_t ni_header_a;
-		u16 tx_queue = 0;
-		struct iphdr *iph;
-		char *pkt_datap;
-		cs_kernel_accel_cb_t *cs_cb;
-		int err = -1;
+	ni_info_t *ni = &ni_private_data;
+	dma_rptr_t rptr_reg;
+	dma_txdesc_t *curr_desc;
+	struct net_device * dev;
+	int snd_pages;
+	int frag_id = 0, len, total_len, tx_qid = 0, lso_tx_qid;
+	//struct net_device_stats *isPtr;
+	u32 free_desc, rptr;
+	dma_addr_t word1;
+	u32 word0, word2, word3 = 0, word4, word5 = 0;
+	dma_swtxq_t *swtxq;
+	ni_header_a_0_t ni_header_a;
+	u16 tx_queue = 0;
+	struct iphdr *iph;
+	char *pkt_datap;
+	cs_kernel_accel_cb_t *cs_cb;
+	int err = -1;
 
-		cs_cb = CS_KERNEL_SKB_CB(skb);
-		dev = ni_private_data.dev[0];
-		//lso_tx_qid = get_dma_lso_txqid(dev);
-		/* make sure not use the same tx queue as ni driver*/
-		if (smp_processor_id() == 0)
-			lso_tx_qid = PE_DMA_LSO_TXQ_IDX - 1;
-		else
-			lso_tx_qid = PE_DMA_LSO_TXQ_IDX;
+	cs_cb = CS_KERNEL_SKB_CB(skb);
+	dev = ni_private_data.dev[0];
+	//lso_tx_qid = get_dma_lso_txqid(dev);
+	/* make sure not use the same tx queue as ni driver*/
+	if (smp_processor_id() == 0)
+		lso_tx_qid = PE_DMA_LSO_TXQ_IDX - 1;
+	else
+		lso_tx_qid = PE_DMA_LSO_TXQ_IDX;
 
-		if (voq == 0xffff)
-			tx_queue = ENCAPSULATION_VOQ_BASE; /* default voq */
-		else
-			tx_queue = voq;
+	if (voq == 0xffff)
+		tx_queue = ENCAPSULATION_VOQ_BASE; /* default voq */
+	else
+		tx_queue = voq;
 
-		/* DMA_DMA_LSO_DMA_LSO_INTERRUPT_0, interrupt first level
-		 * We are using the same tx_qid as for DMA LSO queue */
-		swtxq = &ni->swtxq[lso_tx_qid];
+	/* DMA_DMA_LSO_DMA_LSO_INTERRUPT_0, interrupt first level
+	 * We are using the same tx_qid as for DMA LSO queue */
+	swtxq = &ni->swtxq[lso_tx_qid];
 
-		ni_header_a.bits32 = HDRA_CPU_PKT; /*ByPASS FE*/
+	ni_header_a.bits32 = HDRA_CPU_PKT; /*ByPASS FE*/
 
 #ifndef CS752X_NI_TX_COMPLETE_INTERRUPT
-		cancel_tx_completion_timer(dev);
-		if (check_to_perform_tx_complete(lso_tx_qid))
-			cs_dma_tx_complete(lso_tx_qid, dev);
-		else
-			update_tx_completion_timer(lso_tx_qid, dev);
+	cancel_tx_completion_timer(dev);
+	if (check_to_perform_tx_complete(lso_tx_qid))
+		cs_dma_tx_complete(lso_tx_qid, dev);
+	else
+		update_tx_completion_timer(lso_tx_qid, dev);
 #endif
-		spin_lock(&swtxq->lock);
-		if (swtxq->wptr >= swtxq->finished_idx)
-			free_desc = swtxq->total_desc_num - swtxq->wptr - 1 +
-				swtxq->finished_idx;
-		else
-			free_desc = swtxq->finished_idx - swtxq->wptr - 1;
+	spin_lock(&swtxq->lock);
+	if (swtxq->wptr >= swtxq->finished_idx)
+		free_desc = swtxq->total_desc_num - swtxq->wptr - 1 +
+			swtxq->finished_idx;
+	else
+		free_desc = swtxq->finished_idx - swtxq->wptr - 1;
 
-		/* try to reserve 1 descriptor in case skb is extended in xmit
-		 * function */
-		snd_pages = skb_shinfo(skb)->nr_frags + 1;
+	/* try to reserve 1 descriptor in case skb is extended in xmit
+	 * function */
+	snd_pages = skb_shinfo(skb)->nr_frags + 1;
 
-		if (free_desc <= snd_pages) {
-			err = NETDEV_TX_BUSY;
-			//printk("%s free_desc=%d <= snd_pages=%d \n", __func__, free_desc, snd_pages);
-			goto free_skb;
+	if (free_desc <= snd_pages) {
+		err = NETDEV_TX_BUSY;
+		//printk("%s free_desc=%d <= snd_pages=%d \n", __func__, free_desc, snd_pages);
+		goto free_skb;
+	}
+
+	total_len = skb->len;
+	/* BUG#29162.Workaround. if packet length < 24, DMA LSO can not
+	 * send packet out. */
+	if (total_len < MIN_DMA_SIZE)
+		goto free_skb;
+
+	while (snd_pages != 0) {
+		curr_desc = swtxq->desc_base + swtxq->wptr;
+
+		if (frag_id == 0) {
+			pkt_datap = skb->data;
+			len = total_len - skb->data_len;
+		} else {
+			skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_id - 1];
+			pkt_datap =
+				page_address(frag->page.p) + frag->page_offset;
+			len = frag->size;
+			if (len > total_len)
+				printk("Fatal Error! Send Frag size %d > "
+						"Total Size %d!!\n", len,
+						total_len);
 		}
 
-		total_len = skb->len;
-		/* BUG#29162.Workaround. if packet length < 24, DMA LSO can not
-		 * send packet out. */
-		if (total_len < MIN_DMA_SIZE)
-			goto free_skb;
+		word0 = len | OWN_BIT;
+		word2 = 0;
 
-		while (snd_pages != 0) {
-			curr_desc = swtxq->desc_base + swtxq->wptr;
-
-			if (frag_id == 0) {
-				pkt_datap = skb->data;
-				len = total_len - skb->data_len;
-			} else {
-				skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_id - 1];
-				pkt_datap =
-					page_address(frag->page.p) + frag->page_offset;
-				len = frag->size;
-				if (len > total_len)
-					printk("Fatal Error! Send Frag size %d > "
-							"Total Size %d!!\n", len,
-							total_len);
-			}
-
-			word0 = len | OWN_BIT;
-			word2 = 0;
-
-			skb->ip_summed = CHECKSUM_UNNECESSARY;
-			word3 = set_desc_word3_calc_l4_chksum(skb, dev,
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
+		word3 = set_desc_word3_calc_l4_chksum(skb, dev,
 						total_len, frag_id);
-			/* set_desc_word3_calc_l4_chksum may update checksum value,
-			 * so we do dma_map_single after setting word3.
-			 */
+		/* set_desc_word3_calc_l4_chksum may update checksum value,
+		 * so we do dma_map_single after setting word3.
+		 */
 #if 0	/* not used */
-			if (((u32)pkt_datap >= consistent_base) &&
-					((u32)pkt_datap <= CONSISTENT_END))
-				word1 = skb->head_pa + (skb->data - skb->head);
-			else{
+		if (((u32)pkt_datap >= consistent_base) &&
+				((u32)pkt_datap <= CONSISTENT_END))
+			word1 = skb->head_pa + (skb->data - skb->head);
+		else{
 #endif	/* not used */
 #ifdef CONFIG_CS752X_PROC
-				if( cs_acp_enable & CS75XX_ACP_ENABLE_NI){
-					word1 = virt_to_phys(pkt_datap)|GOLDENGATE_ACP_BASE;
-				}
-				else
+			if( cs_acp_enable & CS75XX_ACP_ENABLE_NI){
+				word1 = virt_to_phys(pkt_datap)|GOLDENGATE_ACP_BASE;
+			}
+			else
 #endif
 
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
-					/* ...if data buffer is clean, flush only header */
-					word1 = dma_map_single(NULL, (void *)pkt_datap,
-						skb->dirty_buffer ? len : sizeof(struct ethhdr),
-						DMA_TO_DEVICE);
+				/* ...if data buffer is clean, flush only header */
+				word1 = dma_map_single(NULL, (void *)pkt_datap,
+					skb->dirty_buffer ? len : sizeof(struct ethhdr),
+					DMA_TO_DEVICE);
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
-					word1 = dma_map_single(NULL, (void *)pkt_datap, len,
-						DMA_TO_DEVICE);
+				word1 = dma_map_single(NULL, (void *)pkt_datap, len,
+					DMA_TO_DEVICE);
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 #if 0	/* not used */
-			}
-#endif
-
-			if (snd_pages == 1) {
-				word0 |= EOF_BIT; /* EOF */
-				if (total_len < 64)
-					word3 |= LSO_IP_LENFIX_EN;
-				swtxq->tx_skb[swtxq->wptr] = skb;
-			} else {
-				swtxq->tx_skb[swtxq->wptr] = NULL;
-				/* FIXME: if packet length > 1514, there are fragment or
-				 * or segment, we need clean this bit */
-				word3 &= ~LSO_IP_LENFIX_EN;
-			}
-
-			if (frag_id == 0) {
-				word0 |= SOF_BIT; /* SOF */
-				word2 = (total_len << 16) & 0xFFFF0000;
-				/* Enable LSO Debug:
-				 * "echo 4 > /proc/driver/cs752x/ne/ni/ni_debug" */
-				/* Disable LSO Debug:
-				 * "echo 0 > /proc/driver/cs752x/ne/ni/ni_debug" */
-#ifdef CONFIG_CS752X_PROC
-				if ((total_len > (dev->mtu + 14)) &&
-						(cs_ni_debug & DBG_NI_LSO))
-					printk("DMA LSO enable: MTU = %d, Packet "
-							"Length %d\n", (dev->mtu + 14),
-							total_len);
-#endif
-			}
-
-			ni_header_a.bits.dvoq = tx_queue;
-			word4 = ni_header_a.bits32;
-
-			curr_desc->word1.bits32 = (u32)word1;
-			curr_desc->word2.bits32 = word2;
-			curr_desc->word3.bits32 = word3;
-			curr_desc->word4.bits32 = word4;
-			curr_desc->word0.bits32 = word0;
-
-			free_desc--;
-
-#ifdef CONFIG_CS752X_PROC
-			if (cs_ni_debug & DBG_NI_DUMP_TX) {
-				iph = ip_hdr(skb);
-				printk("Word0:0x%08X, Word1:0x%08X, ", word0, word1);
-				printk("Word2:0x%08X, Word3:0x%08X, ", word2, word3);
-				printk("Word4:0x%08X, Word5:0x%08X, ", word4, word5);
-				printk("iph->id = 0x%X\n", iph->id);
-				printk("%s:: TX: DMA packet pkt_len %d, skb->data = 0x"
-						"%p\n", __func__, len, skb->data);
-				ni_dm_byte((u32)skb->data, len);
-			}
-#endif
-
-			swtxq->wptr = RWPTR_ADVANCE_ONE(swtxq->wptr,
-					swtxq->total_desc_num);
-			frag_id++;
-			snd_pages--;
 		}
-		smp_wmb();
-		DMA_LSO_WRITEL(swtxq->wptr, swtxq->wptr_reg);
+#endif
+
+		if (snd_pages == 1) {
+			word0 |= EOF_BIT; /* EOF */
+			if (total_len < 64)
+				word3 |= LSO_IP_LENFIX_EN;
+			swtxq->tx_skb[swtxq->wptr] = skb;
+		} else {
+			swtxq->tx_skb[swtxq->wptr] = NULL;
+			/* FIXME: if packet length > 1514, there are fragment or
+			 * or segment, we need clean this bit */
+			word3 &= ~LSO_IP_LENFIX_EN;
+		}
+
+		if (frag_id == 0) {
+			word0 |= SOF_BIT; /* SOF */
+			word2 = (total_len << 16) & 0xFFFF0000;
+			/* Enable LSO Debug:
+			 * "echo 4 > /proc/driver/cs752x/ne/ni/ni_debug" */
+			/* Disable LSO Debug:
+			 * "echo 0 > /proc/driver/cs752x/ne/ni/ni_debug" */
+#ifdef CONFIG_CS752X_PROC
+			if ((total_len > (dev->mtu + 14)) &&
+					(cs_ni_debug & DBG_NI_LSO))
+				printk("DMA LSO enable: MTU = %d, Packet "
+						"Length %d\n", (dev->mtu + 14),
+						total_len);
+#endif
+		}
+
+		ni_header_a.bits.dvoq = tx_queue;
+		word4 = ni_header_a.bits32;
+
+		curr_desc->word1.bits32 = (u32)word1;
+		curr_desc->word2.bits32 = word2;
+		curr_desc->word3.bits32 = word3;
+		curr_desc->word4.bits32 = word4;
+		curr_desc->word0.bits32 = word0;
+
+		free_desc--;
 
 #ifdef CONFIG_CS752X_PROC
 		if (cs_ni_debug & DBG_NI_DUMP_TX) {
-			rptr_reg.bits32 = DMA_LSO_READL(swtxq->rptr_reg);
-			rptr = rptr_reg.bits.rptr;
-			printk("%s::tx reg wptr 0x%08x, rptr 0x%08x\n", __func__,
-					swtxq->wptr, rptr_reg.bits32);
+			iph = ip_hdr(skb);
+			printk("Word0:0x%08X, Word1:0x%08X, ", word0, word1);
+			printk("Word2:0x%08X, Word3:0x%08X, ", word2, word3);
+			printk("Word4:0x%08X, Word5:0x%08X, ", word4, word5);
+			printk("iph->id = 0x%X\n", iph->id);
+			printk("%s:: TX: DMA packet pkt_len %d, skb->data = 0x"
+					"%p\n", __func__, len, skb->data);
+			ni_dm_byte((u32)skb->data, len);
 		}
 #endif
-		spin_unlock(&swtxq->lock);
-		return 0;
-free_skb:
-		spin_unlock(&swtxq->lock);
-		dev_kfree_skb(skb);
-		return err;
 
+		swtxq->wptr = RWPTR_ADVANCE_ONE(swtxq->wptr,
+				swtxq->total_desc_num);
+		frag_id++;
+		snd_pages--;
+	}
+	smp_wmb();
+	DMA_LSO_WRITEL(swtxq->wptr, swtxq->wptr_reg);
+
+#ifdef CONFIG_CS752X_PROC
+	if (cs_ni_debug & DBG_NI_DUMP_TX) {
+		rptr_reg.bits32 = DMA_LSO_READL(swtxq->rptr_reg);
+		rptr = rptr_reg.bits.rptr;
+		printk("%s::tx reg wptr 0x%08x, rptr 0x%08x\n", __func__,
+				swtxq->wptr, rptr_reg.bits32);
+	}
+#endif
+	spin_unlock(&swtxq->lock);
+	return 0;
+
+free_skb:
+	spin_unlock(&swtxq->lock);
+	dev_kfree_skb(skb);
+	return err;
 }
 #endif	/* CS752X_MANAGEMENT_MODE , CONFIG_CS752X_ACCEL_KERNEL */
 
@@ -5116,6 +5117,7 @@ static u32 set_desc_word3_calc_l4_chksum(struct sk_buff *skb,
 #ifndef CONFIG_CS75XX_OFFSET_BASED_QOS
 extern cs_port_id_t cs_qos_get_voq_id(struct sk_buff *skb);
 #endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+
 static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	ni_info_t *ni = &ni_private_data;
