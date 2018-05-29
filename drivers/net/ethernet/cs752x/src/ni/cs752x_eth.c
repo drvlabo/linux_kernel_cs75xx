@@ -4842,7 +4842,7 @@ int cs_ni_close(struct net_device *dev)
 		if (ne_irq_register != 0) {
 			ne_irq_register = 0;
 #if defined(CONFIG_GENERIC_IRQ)
-			free_irq(IRQ_NET_ENG,
+			free_irq(g_irq_global,
 				 (struct net_device *)&ni_private_data);
 #endif
 		}
