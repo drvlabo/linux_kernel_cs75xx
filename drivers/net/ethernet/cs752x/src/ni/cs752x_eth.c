@@ -30,6 +30,7 @@
 #include <linux/proc_fs.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
+#include <linux/version.h>
 #include <linux/timer.h>
 #include <linux/dma-mapping.h>
 #include <linux/if_vlan.h>
@@ -97,12 +98,17 @@
 #include <linux/ratelimit.h>
 
 
+#if 0
+#define DBG(x) {x;}
+#else
 #ifdef CONFIG_CS752X_PROC
 #define DBG(x) {if (cs_ni_debug & DBG_NI || cs_ni_debug & DBG_NI_IRQ) x;}
 	extern u32 cs_acp_enable;
 #else
 #define DBG(x) {}
 #endif
+#endif
+
 #define CONFIG_GENERIC_IRQ 1
 
 #ifndef CS752X_NI_TX_COMPLETE_INTERRUPT
@@ -5892,12 +5898,19 @@ static int cs_mdio_init(struct platform_device *pdev, ni_info_t *ni, mac_info_t 
 	tp->mdio_bus->write = &cs_mdiobus_write;
 	tp->mdio_bus->reset = &cs_mdio_reset;
 	tp->mdio_bus->phy_mask = ~(1 << tp->phy_addr);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
+#else
+	tp->mdio_bus->irq = kmalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
+#endif
 
 	for (i = 0; i < PHY_MAX_ADDR; i++)
 		tp->mdio_bus->irq[i] = PHY_POLL;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	node = of_get_child_by_name(pdev->dev.of_node, "mdio");
-
+#else
+	node = NULL;
+#endif
 	/*
 	 * The bus registration will look for all the PHYs on the mdio bus.
 	 * Unfortunately, it does not ensure the PHY is powered up before
@@ -5916,7 +5929,10 @@ static int cs_mdio_init(struct platform_device *pdev, ni_info_t *ni, mac_info_t 
 	return 0;
 
 err_out_free_mdio_irq:
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
+#else
 	kfree(tp->mdio_bus->irq);
+#endif
 err_out_free_mdio_bus:
 	mdiobus_free(tp->mdio_bus);
 err_out:
@@ -6318,6 +6334,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	struct resource* r;
 	int irq;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "global");
 	if (!r) {
 		printk("get_resource failed at GLOBAL region .\n");
@@ -6425,8 +6442,97 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 		goto l_resource_err;
 	}
 	g_iobase_xram = ioaddr;
+#else	/* KERNEL_VERSION */
+	{
+	struct resource	rtmp;
+	r = &rtmp;
+
+	r->start = 0xF0000000;
+	r->end = r->start + 0x0100;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at GLOBAL region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_global = ioaddr;
+
+	r->start = 0xF0010000;
+	r->end = r->start + 0x0500;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at NI region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_ni = ioaddr;
+
+	r->start = 0xF00700A0;
+	r->end = r->start + 0x48;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at MDIO region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_mdio = ioaddr;
+
+	r->start = 0xF0090000;
+	r->end = r->start + 0x0400;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at DMA_LSO region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_dma_lso = ioaddr;
+
+	r->start = 0xF0020000;
+	r->end = r->start + 0x4000;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at FE region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_fe = ioaddr;
+
+	r->start = 0xF0030000;
+	r->end = r->start + 0x400;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at QM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_qm = ioaddr;
+
+	r->start = 0xF0040000;
+	r->end = r->start + 0x800;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at TM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_tm = ioaddr;
+
+	r->start = 0xF0060000;
+	r->end = r->start + 0x100;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at SCH region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_sch = ioaddr;
+
+	r->start = 0xF0400000;
+	r->end = r->start + 0x100000;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at XRAM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_xram = ioaddr;
+
+	}
+#endif	/* KERNEL_VERSION */
 
 	/* get IRQ resources */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	for(i = 0 ; i < GE_PORT_NUM ; i++) {
 		char tmpstr[16];
 		sprintf(tmpstr, "eth%d", i);
@@ -6458,6 +6564,14 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 		goto l_resource_err;
 	}
 	g_irq_ni_arp = irq;
+#else	/* KERNEL_VERSION */
+	for(i = 0 ; i < GE_PORT_NUM ; i++) {
+		g_irq_eth[i] = IRQ_NI_RX_XRAM0 + i;
+	}
+	g_irq_global = IRQ_NET_ENG;
+	g_irq_ni_pe = IRQ_NI_RX_XRAM6;
+	g_irq_ni_arp = IRQ_NI_RX_XRAM7;
+#endif	/* KERNEL_VERSION */
 
 	/* debug_Aaron 2012/12/11 implement non-cacheable for performace tuning */
 #ifndef CONFIG_CS75XX_WFO
@@ -6973,8 +7087,10 @@ static struct platform_driver cs_ni_platform_driver = {
 	.probe		= cs_ni_init_module_probe,
 	.remove		= __exit_p(cs_ni_cleanup_module_exit),
 	.driver = {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 		.name		= "cs752x-eth",
-#if 0
+#else
+		.name		= "g2-ne",
 		.bus		= &platform_bus_type,
 #endif
 		.owner		= THIS_MODULE,

@@ -19,7 +19,9 @@
 #include <linux/workqueue.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
+#include <linux/phy.h>
 #include <linux/kmod.h>
+#include <linux/version.h>
 #include "cs752x_eth.h"
 #include "cs75xx_phy.h"
 
@@ -32,7 +34,11 @@ void cs_ni_phy_start(mac_info_t *tp)
 	if (!(tp->existed & CS_PHYFLG_IS_CONNECTED))
 		return;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	phydev = mdiobus_get_phy(tp->mdio_bus, tp->phy_addr);
+#else
+	phydev = tp->mdio_bus->phy_map[tp->phy_addr];
+#endif
 
 	phy_start(phydev);
 
@@ -44,7 +50,11 @@ void cs_ni_phy_stop(mac_info_t *tp)
 	//if (!(tp->phy_flags & CS_PHYFLG_IS_CONNECTED))
 	//	return;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	phy_stop(mdiobus_get_phy(tp->mdio_bus, tp->phy_addr));
+#else
+	phy_stop(tp->mdio_bus->phy_map[tp->phy_addr]);
+#endif
 }
  
 static u16 cs_advert_flowctrl_1000T(u8 flow_ctrl)
@@ -96,7 +106,11 @@ static void cs_ni_adjust_link(struct net_device *dev)
 	//u8 oldflowctrl, linkmesg = 0;
 	u32 lcl_adv, rmt_adv;
 	mac_info_t *tp = netdev_priv(dev);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	struct phy_device *phydev = mdiobus_get_phy(tp->mdio_bus, tp->phy_addr);
+#else
+	struct phy_device *phydev = tp->mdio_bus->phy_map[tp->phy_addr];
+#endif
 	//unsigned long flags;
 	int status_change = 0;
 	
@@ -244,7 +258,11 @@ int cs_phy_init(mac_info_t *tp)
 	if (tp->existed & CS_PHYFLG_IS_CONNECTED)
 		return 0;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	phydev = mdiobus_get_phy(tp->mdio_bus, tp->phy_addr);
+#else
+	phydev = tp->mdio_bus->phy_map[tp->phy_addr];
+#endif
 
 #if 0	
 	/* find the first phy */
@@ -315,8 +333,17 @@ int cs_phy_init(mac_info_t *tp)
 	}	
 
 	/* Attach the MAC to the PHY. */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
+#else
+#define	phydev_name(a)	dev_name(&(a)->dev)
+#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	phydev = phy_connect(tp->dev, phydev_name(phydev), &cs_ni_adjust_link,
 			     phydev->interface);
+#else
+	phydev = phy_connect(tp->dev, dev_name(&phydev->dev), &cs_ni_adjust_link,
+			     phydev->dev_flags, phydev->interface);
+#endif
 	if (IS_ERR(phydev)) {
 		dev_err(&tp->dev->dev, "Could not attach to PHY\n");
 		return PTR_ERR(phydev);
@@ -342,7 +369,11 @@ int cs_phy_init(mac_info_t *tp)
 				      SUPPORTED_Asym_Pause);
 		break;
 	default:
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 		phy_disconnect(mdiobus_get_phy(tp->mdio_bus, tp->phy_addr));
+#else
+		phy_disconnect(tp->mdio_bus->phy_map[tp->phy_addr]);
+#endif
 		return -EINVAL;
 	}
 
