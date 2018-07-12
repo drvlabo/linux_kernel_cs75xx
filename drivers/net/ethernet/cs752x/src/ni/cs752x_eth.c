@@ -4553,8 +4553,9 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 					ni_napi_budget, NULL);
 		NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
 	}
-#else
-  #ifndef CS752X_NI_NAPI
+#else	/* CONFIG_CS75XX_KTHREAD_RX */
+
+#ifndef CS752X_NI_NAPI
 	for (i = 0; i <= XRAM_INST_MAX; i++) {
 		status = NI_READL(NI_TOP_NI_CPUXRAM_RXPKT_0_INTERRUPT_0 + i * 8);
 		if (status != 0) {
@@ -4565,7 +4566,7 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 			NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
 		}
 	}
-#else
+#else	/* CS752X_NI_NAPI */
 
 	i = irq_to_idx(irq);
 	status = NI_READL(NI_TOP_NI_CPUXRAM_RXPKT_0_INTERRUPT_0 + i * 8);
@@ -4581,14 +4582,15 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 			NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
 		}
 
-#else
+#else	/* CONFIG_SMB_TUNING */
 		tp = netdev_priv((struct net_device *) dev_instance);
 		napi_schedule(&tp->napi);
-#endif
+#endif	/* CONFIG_SMB_TUNING */
 	}
 
-  #endif
-#endif
+#endif	/* CS752X_NI_NAPI */
+#endif	/* CONFIG_CS75XX_KTHREAD_RX */
+
 	//spin_unlock_irqrestore(&ni_private_data.rx_lock, flags);
 	return IRQ_HANDLED;
 }
