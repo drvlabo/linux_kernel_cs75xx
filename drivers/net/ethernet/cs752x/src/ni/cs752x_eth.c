@@ -268,7 +268,7 @@ extern int qm_acp_enabled;
 static int sw_qm_total_count[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 spinlock_t sw_qm_cnt_lock;
 
-////#define	CSW_USE_SKB_RECYCLE
+#define	CSW_USE_SKB_RECYCLE
 
 #ifdef CSW_USE_SKB_RECYCLE
 /*recycle skb*/
@@ -2046,6 +2046,10 @@ static bool cs_ni_skb_recycle(struct sk_buff *skb)
 	return true;
 }
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+extern bool skb_is_recycleable(const struct sk_buff *skb, int skb_size);
+extern void skb_recycle(struct sk_buff *skb);
+extern bool skb_recycle_check(struct sk_buff *skb, int skb_size);
+
 static int cs_ni_skb_recycle(struct sk_buff *skb)
 {
 	struct sk_buff_head * tmp_sk_head;
