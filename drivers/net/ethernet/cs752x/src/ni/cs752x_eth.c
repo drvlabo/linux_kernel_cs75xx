@@ -268,15 +268,17 @@ extern int qm_acp_enabled;
 static int sw_qm_total_count[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 spinlock_t sw_qm_cnt_lock;
 
+////#define	CSW_USE_SKB_RECYCLE
+
+#ifdef CSW_USE_SKB_RECYCLE
 /*recycle skb*/
 #ifndef CONFIG_SMB_TUNING
 #ifndef CONFIG_CS75XX_KTHREAD_RX
 #define NI_RECYCLE_SKB_PER_CPU 1
 struct sk_buff_head cs_ni_skb_recycle_cpu1_head;
-#endif
-#endif
+#endif	/* CONFIG_CS75XX_KTHREAD_RX */
+#endif	/* CONFIG_SMB_TUNING */
 struct sk_buff_head cs_ni_skb_recycle_cpu0_head;
-
 
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static bool cs_ni_skb_recycle(struct sk_buff *skb);
@@ -284,6 +286,7 @@ static bool cs_ni_skb_recycle(struct sk_buff *skb);
 static int cs_ni_skb_recycle(struct sk_buff *skb);
 static void cs_ni_prealloc_free_buffer(struct net_device *dev);
 #endif /* ! CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 
 
@@ -415,6 +418,7 @@ static int	g_irq_ni_wfo_pe1;
 static int	g_irq_ni_wfo;
 
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static void clean_skb_recycle_buffer(void)
 {
@@ -438,6 +442,7 @@ static void clean_skb_recycle_buffer(void * data){
 #endif /* NI_RECYCLE_SKB_PER_CPU */
 }
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif /* CSW_USE_SKB_RECYCLE */
 
 u32 calc_crc(u32 crc, u8 const *p, u32 len)
 {
@@ -651,28 +656,29 @@ static inline void cs_ni_alloc_linux_free_buffer(struct net_device *dev,
 				sw_qm_total_count[qid]));
 
 	for (i = 0; i < cnt; i++) {
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef	NI_RECYCLE_SKB_PER_CPU
 		if (get_cpu() == 0)
 		{
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT    // Bug#42574
 			skb = __skb_dequeue(&cs_ni_skb_recycle_cpu0_head);
-#else
+#else	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			if(ni_min_skb_queue_len < skb_queue_len(&cs_ni_skb_recycle_cpu0_head))
 				skb = __skb_dequeue(&cs_ni_skb_recycle_cpu0_head);
 			else
 				skb = NULL;
-#endif
+#endif	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 		}
 		else
 		{
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT    // Bug#42574
 			skb = __skb_dequeue(&cs_ni_skb_recycle_cpu1_head);
-#else
+#else	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			if(ni_min_skb_queue_len < skb_queue_len(&cs_ni_skb_recycle_cpu1_head))
 				skb = __skb_dequeue(&cs_ni_skb_recycle_cpu1_head);
 			else
 				skb = NULL;
-#endif
+#endif	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 		}
 		put_cpu();
 #else /* NI_RECYCLE_SKB_PER_CPU */
@@ -688,6 +694,10 @@ static inline void cs_ni_alloc_linux_free_buffer(struct net_device *dev,
 			skb = NULL;
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 #endif /* NI_RECYCLE_SKB_PER_CPU */
+#else	/* CSW_USE_SKB_RECYCLE */
+		skb = NULL;
+#endif	/* CSW_USE_SKB_RECYCLE */
+
 		if (skb == NULL) {
 			/* debug_Aaron 2012/12/11 implement non-cacheable for performace tuning */
 #if 1
@@ -713,9 +723,11 @@ static inline void cs_ni_alloc_linux_free_buffer(struct net_device *dev,
 			pr_warning("%s: Could only allocate %d receive skb(s).\n", dev->name, cnt);
 			break;
 		}
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_SMB_TUNING
 		skb->skb_recycle = cs_ni_skb_recycle;
 #endif
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 		/* first 256 bytes aligned address from skb->head */
 		skb->data = (unsigned char *)((u32)
@@ -2009,7 +2021,7 @@ struct net_device *ni_get_device(unsigned char port_id)
 }
 EXPORT_SYMBOL(ni_get_device);
 
-#if 0	/* invalid in this kernel */
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static bool cs_ni_skb_recycle(struct sk_buff *skb)
 {
@@ -2048,7 +2060,7 @@ static int cs_ni_skb_recycle(struct sk_buff *skb)
 		ret = 0;
 	}
 	put_cpu();
-#else
+#else	/* NI_RECYCLE_SKB_PER_CPU */
 	if ((skb_queue_len(&cs_ni_skb_recycle_cpu0_head) <
 				LINUX_FREE_BUF_LIST_SIZE) &&
 			skb_recycle_check(skb,
@@ -2061,17 +2073,17 @@ static int cs_ni_skb_recycle(struct sk_buff *skb)
 			//printk("%s: In ni_rx_noncache, but skb->head_pa == 0!!!\n", __func__);
 			return ret;
 		}
-#endif
+#endif	/* not used */
 
 		skb_queue_tail(&cs_ni_skb_recycle_cpu0_head, skb);
 		ret = 0;
 	}
 
-#endif
+#endif	/* NI_RECYCLE_SKB_PER_CPU */
 	return ret;
 }
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
-#endif
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 #ifdef CONFIG_CS75XX_WFO
 #include "cs75xx_ipc_wfo.h"
@@ -2108,11 +2120,11 @@ static inline int cs_dma_tx_complete_easy(int tx_qid)
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			free_count++;
 
-#if 1
-			dev_kfree_skb_any(swtxq->tx_skb[swtxq->finished_idx]);
-#else
+#ifdef CSW_USE_SKB_RECYCLE
 			if (cs_ni_skb_recycle(swtxq->tx_skb[swtxq->finished_idx]))
 				dev_kfree_skb_any(swtxq->tx_skb[swtxq->finished_idx]);
+#else
+			dev_kfree_skb_any(swtxq->tx_skb[swtxq->finished_idx]);
 #endif
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			swtxq->tx_skb[swtxq->finished_idx] = NULL;
@@ -3781,12 +3793,14 @@ static inline void cs_ni_reset_tx_ring(void)
 					i, rptr_reg.bits32));
 	}
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 	clean_skb_recycle_buffer();
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 	clean_skb_recycle_buffer(NULL);
 	smp_call_function((void *)clean_skb_recycle_buffer, NULL, 1);
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 }
 
 static void cs_ni_reset_task(struct work_struct *work)
@@ -4805,10 +4819,12 @@ int cs_ni_open(struct net_device *dev)
 	if (tp->port_id == GE_PORT2 && tp->ni_driver_state == 0)
 		tp->ni_driver_state = 1;
 #endif
+#ifdef CSW_USE_SKB_RECYCLE
 #ifndef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 	if(ni_rx_noncache == 0 && qm_acp_enabled == 0)
                 cs_ni_prealloc_free_buffer(dev);
 #endif /* ! CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 	return 0;
 }
 
@@ -4872,12 +4888,14 @@ int cs_ni_close(struct net_device *dev)
 #endif
 		}
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 		clean_skb_recycle_buffer();
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 		clean_skb_recycle_buffer(NULL);
 		smp_call_function(clean_skb_recycle_buffer, NULL, 1);
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 	}
 
 #ifdef CONFIG_CS752X_VIRTUAL_NETWORK_INTERFACE
@@ -6296,6 +6314,7 @@ static void cs_ni_init_virtual_instance(int dev_idx, int irq, char * name)
 	snprintf(dev->name, IFNAMSIZ, name);
 }
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifndef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static void cs_ni_prealloc_free_buffer(struct net_device *dev)
 {
@@ -6320,6 +6339,7 @@ static void cs_ni_prealloc_free_buffer(struct net_device *dev)
 #endif
 }
 #endif /* ! CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 /* 3.4.11 Change for register as platform device */
 static int __init cs_ni_init_module_probe(struct platform_device *pdev)
@@ -6597,10 +6617,12 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	spin_lock_init(&sw_qm_cnt_lock);
 	spin_lock_init(&active_dev_lock);
 
+#ifdef CSW_USE_SKB_RECYCLE
 	skb_queue_head_init(&cs_ni_skb_recycle_cpu0_head);
 #ifdef  NI_RECYCLE_SKB_PER_CPU
 	skb_queue_head_init(&cs_ni_skb_recycle_cpu1_head);
 #endif
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 	cs_ne_init_cfg();
 
