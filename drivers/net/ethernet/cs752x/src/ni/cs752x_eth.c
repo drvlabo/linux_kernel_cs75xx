@@ -1942,7 +1942,11 @@ static int cs_ni_poll_dev(int instance, struct net_device *dev,
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 	if (received_pkts < budget) {
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#if 1
+	if (received_pkts < budget) {
+#else
 	if (received_pkts == 0) {
+#endif
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 
 		/*
@@ -1956,7 +1960,9 @@ static int cs_ni_poll_dev(int instance, struct net_device *dev,
 		NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
 				(instance << 3));
 
+#if 0
 		return 0;
+#endif
 	}
 
 
