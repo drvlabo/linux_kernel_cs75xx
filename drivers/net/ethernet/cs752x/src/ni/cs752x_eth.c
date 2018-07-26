@@ -1351,11 +1351,11 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 				 */
 #ifdef CONFIG_CS75XX_OFFSET_BASED_QOS
 				if (instance != CS_NI_INSTANCE_WFO)
-#else
+#else	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 				if ((instance != CS_NI_INSTANCE_WFO_PE0)
 					&& (instance != CS_NI_INSTANCE_WFO_PE1))
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
-#endif
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
+#endif	/* CONFIG_CS75XX_WFO */
 				cs_core_logic_input_set_cb(skb);
 				// FIXME: pspid <--> lspid one to one map
 				cs_cb->key_misc.orig_lspid = xram_hdr_e.bits.lspid;
@@ -1372,7 +1372,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
             			cs_cb->common.sw_only = CS_SWONLY_STATE;
             		}
         		}
-#endif
+#endif	/* CONFIG_CS75XX_WFO */
 
 #ifdef CONFIG_CS752X_FASTNET
 				cs_cb->key_misc.super_hash = xram_cpu_hdr1.bits.superhash;
@@ -1397,7 +1397,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			cs_hw_accel_tunnel_ctrl_handle(voq, skb);
 			goto SKB_HANDLED;
 		}
-#endif
+#endif	/* CS75XX_HW_ACCEL_TUNNEL */
 
 #ifdef CONFIG_CS75XX_OFFSET_BASED_QOS
         // Fill packet_type
@@ -1410,14 +1410,14 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 
             case CS_FUNC_TYPE_WIRELESS_ACCEL_11N:
                 break;
-#endif //CONFIG_CS75XX_HW_ACCEL_WIRELESS
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 
 #ifdef CONFIG_CS75XX_WFO
             case CS_FUNC_TYPE_WFO_11AC:
             case CS_FUNC_TYPE_WFO_11N:
                 packet_type = CS_APP_PKT_WFO;
                 break;
-#endif //CONFIG_CS75XX_WFO
+#endif	/* CONFIG_CS75XX_WFO */
 
             case CS_FUNC_TYPE_VPN_OFFLOAD_PE0:
                 break;
@@ -1435,9 +1435,9 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
         				packet_type = CS_APP_PKT_WFO;
         			else
         				packet_type = CS_APP_PKT_WIRELESS;
-#else
+#else	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 			        packet_type = CS_APP_PKT_WFO;
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
     			} else if (((voq == CPU_PORT7_VOQ_BASE) &&
 			                ((xram_hdr_e.bits.lspid == CS_FE_LSPID_4)  ||
 			                (xram_hdr_e.bits.lspid == CS_FE_LSPID_5))) ||
@@ -1462,12 +1462,12 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			    }
                 break;
         } /* switch(func_type) */
-#else	//CONFIG_CS75XX_OFFSET_BASED_QOS
+#else	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 #ifdef CONFIG_CS75XX_HW_ACCEL_WIRELESS
 		if (xram_hdr_e.bits.lspid == CS_FE_LSPID_3) {
 			packet_type = CS_APP_PKT_WIRELESS;
 		} else
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 		if ((instance == CS_NI_INSTANCE_WFO_PE0)
 			|| (instance == CS_NI_INSTANCE_WFO_PE1)) {
 #ifdef CONFIG_CS75XX_HW_ACCEL_WIRELESS
@@ -1475,9 +1475,9 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 				packet_type = CS_APP_PKT_WIRELESS;
 			else
 				packet_type = CS_APP_PKT_WFO;
-#else
+#else	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 			packet_type = CS_APP_PKT_WFO;
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 		} else if (((voq == CPU_PORT7_VOQ_BASE) &&
 			((xram_hdr_e.bits.lspid == CS_FE_LSPID_4) ||
 			(xram_hdr_e.bits.lspid == CS_FE_LSPID_5))) ||
@@ -1510,7 +1510,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 				}
 			}
 		}
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 
 		DBG(printk("%s:%d:: packet_type = %d\n",
 			__func__, __LINE__, packet_type));
@@ -1548,22 +1548,22 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			        (xram_cpu_hdr0.bits.dst_voq == CPU_PORT7_VOQ_BASE) ?  lspid : instance,
 			        (xram_cpu_hdr0.bits.dst_voq == CPU_PORT7_VOQ_BASE) ?  vap4bypass : vap,
 					skb) != 1)
-#else
+#else	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 			if (cs_hw_accel_wfo_handle_rx((xram_cpu_hdr0.bits.dst_voq == CPU_PORT7_VOQ_BASE) ?
 					CS_NI_INSTANCE_WFO_802_3 : instance, voq, skb) != 1)
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 		                /*
 		                * wfo already process skb if it return non 1
 		                */
 				goto SKB_HANDLED;
 		}
-#endif
+#endif	/* CONFIG_CS75XX_WFO */
 #ifdef CONFIG_CS75XX_HW_ACCEL_WIRELESS
 		if (packet_type == CS_APP_PKT_WIRELESS) {
 			if (cs_hw_accel_wireless_handle(voq, skb, xram_cpu_hdr1.bits.sw_action) != 1)
 				goto SKB_HANDLED;
 		}
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 
 #endif /* CONFIG_CS752X_ACCEL_KERNEL */
 
@@ -5280,12 +5280,12 @@ static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev)
         if ((cs_cb == NULL) && (skb->protocol == htons(ETH_P_ARP))&&
 #ifdef CONFIG_CS752X_PROC
 		(cs_qos_preference == CS_QOS_PREF_PORT)
-#endif
+#endif	/* CONFIG_CS752X_PROC */
 	) {
             tx_queue += 7 - CS_QOS_ARP_DEFAULT_PRIORITY;
             //printk("### tx_queue: %d\n", tx_queue);
         }
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif /* CONFIG_CS75XX_OFFSET_BASED_QOS */
 
 	if ((cs_cb != NULL) && (cs_cb->common.tag == CS_CB_TAG)) {
 		if (cs_cb->fastnet.word3_valid) {
@@ -5312,24 +5312,24 @@ static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev)
                         tx_queue += cs_qos_get_voq_id(skb);
                     }
 //--BUG#39672
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif /* CONFIG_CS75XX_OFFSET_BASED_QOS */
 				if (!(cs_cb->common.module_mask & CS_MOD_MASK_WITH_QOS)) {
 					cs_cb->action.voq_pol.d_voq_id = tx_queue;
 #ifdef CONFIG_CS75XX_OFFSET_BASED_QOS
                     cs_cb->action.voq_pol.voq_policy = 1;
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 				}
 				cs_cb->common.output_dev = dev;
 #ifdef CONFIG_CS75XX_WFO
 				if (cs_hw_accel_wfo_handle_tx(tp->port_id, skb) == 1)
-#endif
+#endif	/* CONFIG_CS75XX_WFO */
 				cs_core_logic_add_connections(skb);
 
 				/* anything else? */
 			}
 		}
 	}
-#endif
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
 	while (snd_pages != 0) {
 		curr_desc = swtxq->desc_base + swtxq->wptr;

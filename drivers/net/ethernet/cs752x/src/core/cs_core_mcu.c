@@ -127,6 +127,8 @@ cs_l4port_hash_t tcp_l4port_hash_tbl[MAX_PORT_LIST_SIZE];
 cs_l4port_hash_t udp_l4port_hash_tbl[MAX_PORT_LIST_SIZE];
 
 /* control block operation APIs */
+
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 /* initialize CB at the input */
 int cs_core_logic_input_set_cb(struct sk_buff *skb)
 {
@@ -177,17 +179,14 @@ int cs_core_logic_input_set_cb(struct sk_buff *skb)
 	cs_cb->action.voq_pol.pppoe_session_id = 0;
 	cs_cb->action.voq_pol.voq_policer_parity = false;
 
-#ifdef CONFIG_CS752X_ACCEL_KERNEL
 	cs_vlan_set_input_cb(skb);
 	cs_pppoe_kernel_set_input_cb(skb);
 #ifndef CONFIG_CS75XX_OFFSET_BASED_QOS	
 	cs_dscp_set_input_cb(skb);  //Bug#40322
 #endif	
-#endif
-
 	return 0;
 } /* cs_core_logic_input_set_cb */
-
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
 /*
  * Identify forward application type based on flags in cs_cb.
@@ -1170,7 +1169,8 @@ int set_generic_qos_hash(cs_qos_hash_t *qos_hash, cs_kernel_accel_cb_t *cb)
 	return set_qos_hash_result(cb, qos_hash);
 } /* set_generic_qos_hash */
 
-int set_l3_multicast_fwd_hash(cs_fwd_hash_t *fwd_hash, unsigned int *fwd_cnt,
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
+static int set_l3_multicast_fwd_hash(cs_fwd_hash_t *fwd_hash, unsigned int *fwd_cnt,
 		struct sk_buff *skb)
 {
 	cs_kernel_accel_cb_t *cs_cb = CS_KERNEL_SKB_CB(skb);
@@ -1266,8 +1266,10 @@ int set_l3_multicast_fwd_hash(cs_fwd_hash_t *fwd_hash, unsigned int *fwd_cnt,
 
 	return 0;
 } /*set_l3_multicast_fwd_hash*/
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
-int set_l3_multicast_sw_hash(cs_fwd_hash_t *fwd_hash, unsigned int *fwd_cnt,
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
+static int set_l3_multicast_sw_hash(cs_fwd_hash_t *fwd_hash, unsigned int *fwd_cnt,
                 struct sk_buff *skb)
 {
         cs_kernel_accel_cb_t *cs_cb = CS_KERNEL_SKB_CB(skb);
@@ -1293,8 +1295,9 @@ int set_l3_multicast_sw_hash(cs_fwd_hash_t *fwd_hash, unsigned int *fwd_cnt,
                                                 *fwd_cnt));
         return 0;
 } /*set_l3_multicast_sw_hash*/
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
  
-
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 static int setup_hash_entry(struct sk_buff *skb, cs_fwd_hash_t *fwd_hash,
 		unsigned int *fwd_cnt, cs_qos_hash_t *qos_hash,
 		unsigned int *qos_cnt)
@@ -1464,6 +1467,7 @@ static int setup_hash_entry(struct sk_buff *skb, cs_fwd_hash_t *fwd_hash,
 	else
 		return 0;
 } /* setup_hash_entry */
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
 #if defined(CONFIG_CS75XX_DOUBLE_CHECK)
 /*
@@ -2122,13 +2126,14 @@ static void set_qos_hash_result_index_to_cs_cb(cs_kernel_accel_cb_t *cs_cb,
 	cs_cb->hw_rslt.qosrslt_idx = qos_hash->rslt_idx;
 } /* set_qos_hash_result_index_to_cs_cb */
 
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 /*
  * Based on given skb and its control block info, decide whether to create
  * hash entry(ies).  If yes, then create hash entry(ieS) according to its
  * module.  This API supports at most creating 4 FWD hash entries and 1
  * QOS hash entry at once.
  */
-int cs_core_logic_add_hw_accel(struct sk_buff *skb)
+static int cs_core_logic_add_hw_accel(struct sk_buff *skb)
 {
 	cs_kernel_accel_cb_t *cs_cb = CS_KERNEL_SKB_CB(skb);
 	cs_fwd_hash_t *fwd_hash = NULL;
@@ -2258,6 +2263,7 @@ FAIL_TO_ADD_HASH:
 	kfree(fwd_hash);
 	return CS_ACCEL_HASH_FAIL;
 }
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
 static int create_logical_port_fwd_hash(void)
 {
@@ -2954,6 +2960,7 @@ int cs_core_set_promiscuous_port(int port, int enbl)
 	return ret;
 }
 
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 int cs_core_logic_output_set_cb(struct sk_buff *skb)
 {
 	cs_kernel_accel_cb_t *cs_cb = CS_KERNEL_SKB_CB(skb);
@@ -2966,7 +2973,6 @@ int cs_core_logic_output_set_cb(struct sk_buff *skb)
 					  CS_SWONLY_STATE)))
 		return -1;
 
-#ifdef CONFIG_CS752X_ACCEL_KERNEL
 	if (cs_vlan_set_output_cb(skb) != 0) {
 		cs_cb->common.sw_only = CS_SWONLY_STATE;
 		ret = -1;
@@ -2982,12 +2988,13 @@ int cs_core_logic_output_set_cb(struct sk_buff *skb)
 #endif
 	}
 	cs_cb->fill_ouput_done = 1;
-#endif
 	return ret;
 
 }
 EXPORT_SYMBOL(cs_core_logic_output_set_cb);
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 int cs_core_logic_add_connections(struct sk_buff *skb)
 {
 	cs_kernel_accel_cb_t *cs_cb = CS_KERNEL_SKB_CB(skb);
@@ -3002,7 +3009,6 @@ int cs_core_logic_add_connections(struct sk_buff *skb)
 		return CS_ACCEL_HASH_DONT_CARE;
 
 
-#ifdef CONFIG_CS752X_ACCEL_KERNEL
 	if (cs_cb->fill_ouput_done == 0) {
 #if 0
 		if (cs_vlan_set_output_cb(skb) != 0)
@@ -3017,7 +3023,6 @@ int cs_core_logic_add_connections(struct sk_buff *skb)
 
 	if (cs_accel_hw_accel_enable(CS_MOD_MASK_QOS_FIELD_CHANGE) == 0)
 		cs_cb->common.module_mask &= ~CS_MOD_MASK_QOS_FIELD_CHANGE;
-#endif
 
 #if defined(CONFIG_CS75XX_HW_ACCEL_IPSEC_CTRL) ||\
 	defined(CONFIG_CS75XX_HW_ACCEL_L2TP_CTRL)
@@ -3076,7 +3081,8 @@ int cs_core_logic_add_connections(struct sk_buff *skb)
 #endif
 		return ret;
 	}
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_IPSEC_CTRL || CONFIG_CS75XX_HW_ACCEL_L2TP_CTRL */
+
 	if (cs_accel_hw_accel_enable(cs_cb->common.module_mask)) {
 		DBG(printk("%s create hw accel hash \n", __func__));
 		ret = cs_core_logic_add_hw_accel(skb);
@@ -3104,7 +3110,7 @@ int cs_core_logic_add_connections(struct sk_buff *skb)
 
 	return ret;
 }
-
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
 int cs_core_logic_set_lifetime(cs_kernel_accel_cb_t *cb,
 		unsigned int lifetime_sec)
@@ -3136,6 +3142,7 @@ int cs_core_logic_add_swid64(cs_kernel_accel_cb_t *cb, u64 swid64)
 	return 0;
 } /* cs_core_logic_add_swid64 */
 
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 void cs_core_set_sw_only(struct sk_buff *skb)
 {
 	cs_kernel_accel_cb_t *cs_cb = CS_KERNEL_SKB_CB(skb);
@@ -3146,13 +3153,16 @@ void cs_core_set_sw_only(struct sk_buff *skb)
 	cs_cb->common.sw_only = CS_SWONLY_STATE;
 }
 EXPORT_SYMBOL(cs_core_set_sw_only);
+#endif
 
 int cs_core_logic_init(void)
 {
 	cs_ne_default_lifetime = CS_DEFAULT_LIFETIME;
 	cs_core_vtable_init();
 	cs_core_hmu_init();
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 	cs_accel_cb_init();
+#endif
 
 	cs_core_rule_hmu_init();
 
@@ -3191,6 +3201,8 @@ void cs_core_logic_exit(void)
 #ifdef CONFIG_CS752X_FASTNET
 	cs_core_fastnet_exit();
 #endif
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 	cs_accel_cb_exit();
+#endif
 } /* cs_core_logic_exit */
 
