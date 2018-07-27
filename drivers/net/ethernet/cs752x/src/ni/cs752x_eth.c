@@ -2028,6 +2028,10 @@ struct net_device *ni_get_device(unsigned char port_id)
 EXPORT_SYMBOL(ni_get_device);
 
 #ifdef CSW_USE_SKB_RECYCLE
+extern bool skb_is_recycleable(const struct sk_buff *skb, int skb_size);
+extern void skb_recycle(struct sk_buff *skb);
+extern bool skb_recycle_check(struct sk_buff *skb, int skb_size);
+
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static bool cs_ni_skb_recycle(struct sk_buff *skb)
 {
@@ -2046,10 +2050,6 @@ static bool cs_ni_skb_recycle(struct sk_buff *skb)
 	return true;
 }
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
-extern bool skb_is_recycleable(const struct sk_buff *skb, int skb_size);
-extern void skb_recycle(struct sk_buff *skb);
-extern bool skb_recycle_check(struct sk_buff *skb, int skb_size);
-
 static int cs_ni_skb_recycle(struct sk_buff *skb)
 {
 	struct sk_buff_head * tmp_sk_head;

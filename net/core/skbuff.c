@@ -249,6 +249,13 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	skb->pfmemalloc = pfmemalloc;
 	atomic_set(&skb->users, 1);
 	skb->head = data;
+
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	/* ...by default, buffer allocated is "dirty" (memory needs to be flushed) */
+	skb->dirty_buffer = 1;
+	skb->map_end = NULL;
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 	skb->data = data;
 	skb_reset_tail_pointer(skb);
 	skb->end = skb->tail + size;
@@ -681,6 +688,11 @@ static void skb_release_all(struct sk_buff *skb)
 
 void __kfree_skb(struct sk_buff *skb)
 {
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	if (skb->skb_recycle && skb->skb_recycle(skb))
+		return;
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 	skb_release_all(skb);
 	kfree_skbmem(skb);
 }
@@ -912,6 +924,12 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 	new->dev		= old->dev;
 	memcpy(new->cb, old->cb, sizeof(old->cb));
 	skb_dst_copy(new, old);
+
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	/* ...reset buffer dirty flag (if cloning, will be adjusted later) */
+	new->dirty_buffer = 1;
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 #ifdef CONFIG_XFRM
 	new->sp			= secpath_get(old->sp);
 #endif
@@ -970,6 +988,11 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 	n->sk = NULL;
 	__copy_skb_header(n, skb);
 
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	/* ...set buffer dirty flag */
+	C(dirty_buffer);
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 	C(len);
 	C(data_len);
 	C(mac_len);
@@ -977,9 +1000,19 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 	n->cloned = 1;
 	n->nohdr = 0;
 	n->destructor = NULL;
+
+#if defined(CONFIG_SMB_TUNING) || defined(CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT)
+	n->skb_recycle = NULL;
+#endif
+
 	C(tail);
 	C(end);
 	C(head);
+
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	C(map_end);
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 	C(head_frag);
 	C(data);
 	C(truesize);
@@ -1279,6 +1312,16 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 		BUG();
 
 	size = SKB_DATA_ALIGN(size);
+ 
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	/* ...if buffer is partially mapped, complete mapping */
+	if (skb->map_end && (u32)skb_tail_pointer(skb) > (u32)skb->map_end) {
+		dma_map_single(NULL, skb->map_end,
+				SKB_DATA_ALIGN(skb_tail_pointer(skb) - skb->map_end),
+				DMA_FROM_DEVICE);
+		skb->map_end = NULL;
+	}
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 
 	if (skb_pfmemalloc(skb))
 		gfp_mask |= __GFP_MEMALLOC;
@@ -1332,6 +1375,12 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 	skb->cloned   = 0;
 	skb->hdr_len  = 0;
 	skb->nohdr    = 0;
+
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	skb->dirty_buffer = 1;
+	skb->map_end = NULL;
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 	atomic_set(&skb_shinfo(skb)->dataref, 1);
 	return 0;
 
