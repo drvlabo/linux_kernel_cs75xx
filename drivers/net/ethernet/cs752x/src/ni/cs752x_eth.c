@@ -30,6 +30,7 @@
 #include <linux/proc_fs.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
+#include <linux/version.h>
 #include <linux/timer.h>
 #include <linux/dma-mapping.h>
 #include <linux/if_vlan.h>
@@ -51,6 +52,7 @@
 #include <linux/phy.h>
 #include <linux/workqueue.h>
 #include <linux/ethtool.h>
+#include <linux/of_mdio.h>
 #include "cs_network_types.h"
 #include "cs752x_eth.h"
 #include "cs75xx_ethtool.h"
@@ -96,12 +98,17 @@
 #include <linux/ratelimit.h>
 
 
+#if 0
+#define DBG(x) {x;}
+#else
 #ifdef CONFIG_CS752X_PROC
 #define DBG(x) {if (cs_ni_debug & DBG_NI || cs_ni_debug & DBG_NI_IRQ) x;}
 	extern u32 cs_acp_enable;
 #else
 #define DBG(x) {}
 #endif
+#endif
+
 #define CONFIG_GENERIC_IRQ 1
 
 #ifndef CS752X_NI_TX_COMPLETE_INTERRUPT
@@ -261,15 +268,17 @@ extern int qm_acp_enabled;
 static int sw_qm_total_count[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 spinlock_t sw_qm_cnt_lock;
 
+#define	CSW_USE_SKB_RECYCLE
+
+#ifdef CSW_USE_SKB_RECYCLE
 /*recycle skb*/
 #ifndef CONFIG_SMB_TUNING
 #ifndef CONFIG_CS75XX_KTHREAD_RX
 #define NI_RECYCLE_SKB_PER_CPU 1
 struct sk_buff_head cs_ni_skb_recycle_cpu1_head;
-#endif
-#endif
+#endif	/* CONFIG_CS75XX_KTHREAD_RX */
+#endif	/* CONFIG_SMB_TUNING */
 struct sk_buff_head cs_ni_skb_recycle_cpu0_head;
-
 
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static bool cs_ni_skb_recycle(struct sk_buff *skb);
@@ -277,6 +286,7 @@ static bool cs_ni_skb_recycle(struct sk_buff *skb);
 static int cs_ni_skb_recycle(struct sk_buff *skb);
 static void cs_ni_prealloc_free_buffer(struct net_device *dev);
 #endif /* ! CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 
 
@@ -397,6 +407,7 @@ void __iomem*	g_iobase_fe;
 void __iomem*	g_iobase_qm;
 void __iomem*	g_iobase_tm;
 void __iomem*	g_iobase_sch;
+void __iomem*	g_iobase_xram;
 
 static int	g_irq_eth[GE_PORT_NUM];
 static int	g_irq_global;
@@ -407,6 +418,7 @@ static int	g_irq_ni_wfo_pe1;
 static int	g_irq_ni_wfo;
 
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static void clean_skb_recycle_buffer(void)
 {
@@ -430,6 +442,7 @@ static void clean_skb_recycle_buffer(void * data){
 #endif /* NI_RECYCLE_SKB_PER_CPU */
 }
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif /* CSW_USE_SKB_RECYCLE */
 
 u32 calc_crc(u32 crc, u8 const *p, u32 len)
 {
@@ -643,28 +656,29 @@ static inline void cs_ni_alloc_linux_free_buffer(struct net_device *dev,
 				sw_qm_total_count[qid]));
 
 	for (i = 0; i < cnt; i++) {
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef	NI_RECYCLE_SKB_PER_CPU
 		if (get_cpu() == 0)
 		{
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT    // Bug#42574
 			skb = __skb_dequeue(&cs_ni_skb_recycle_cpu0_head);
-#else
+#else	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			if(ni_min_skb_queue_len < skb_queue_len(&cs_ni_skb_recycle_cpu0_head))
 				skb = __skb_dequeue(&cs_ni_skb_recycle_cpu0_head);
 			else
 				skb = NULL;
-#endif
+#endif	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 		}
 		else
 		{
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT    // Bug#42574
 			skb = __skb_dequeue(&cs_ni_skb_recycle_cpu1_head);
-#else
+#else	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			if(ni_min_skb_queue_len < skb_queue_len(&cs_ni_skb_recycle_cpu1_head))
 				skb = __skb_dequeue(&cs_ni_skb_recycle_cpu1_head);
 			else
 				skb = NULL;
-#endif
+#endif	/* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 		}
 		put_cpu();
 #else /* NI_RECYCLE_SKB_PER_CPU */
@@ -680,6 +694,10 @@ static inline void cs_ni_alloc_linux_free_buffer(struct net_device *dev,
 			skb = NULL;
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 #endif /* NI_RECYCLE_SKB_PER_CPU */
+#else	/* CSW_USE_SKB_RECYCLE */
+		skb = NULL;
+#endif	/* CSW_USE_SKB_RECYCLE */
+
 		if (skb == NULL) {
 			/* debug_Aaron 2012/12/11 implement non-cacheable for performace tuning */
 #if 1
@@ -705,9 +723,11 @@ static inline void cs_ni_alloc_linux_free_buffer(struct net_device *dev,
 			pr_warning("%s: Could only allocate %d receive skb(s).\n", dev->name, cnt);
 			break;
 		}
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_SMB_TUNING
 		skb->skb_recycle = cs_ni_skb_recycle;
 #endif
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 		/* first 256 bytes aligned address from skb->head */
 		skb->data = (unsigned char *)((u32)
@@ -895,6 +915,7 @@ static int ni_remove_skb_from_list(u32 instance, struct sk_buff *skb)
 #include "../../../../../../net/bridge/br_private.h"
 static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev);
 #define CS_MOD_BRIDGE_SWID (CS_SWID64_MASK(CS_SWID64_MOD_ID_BRIDGE) | 0x49444745)
+
 /* try fast bridgine, cxc */
 int cs752x_fast_bridging(struct sk_buff *skb)
 {
@@ -1061,7 +1082,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 	CPU_HEADER1_T xram_cpu_hdr1;
 	struct sk_buff *skb, *tmp_skb = NULL, *tail_skb = NULL;
 	u32 hw_wr_ptr, next_link, tmp_data, *tmp_ptr, refill_cnt = 0;
-	u32 jumbo_pkt_index = 0, seg_len, *xram_ptr = (u32 *)NI_XRAM_BASE;
+	u32 jumbo_pkt_index = 0, seg_len, *xram_ptr = (u32 *)g_iobase_xram;
 	mac_info_t *tp = NULL;
 	int pkt_len, done = 0;
 #ifdef CONFIG_CS752X_VIRTUAL_NETWORK_INTERFACE
@@ -1102,7 +1123,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			printk("%s:%d:something is not right! skb@0x%x, "
 					"tmp_ptr@0x%x\n", __func__, __LINE__,
 					(u32)skb, (u32)tmp_ptr);
-			xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+			xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 			refill_cnt++;
 			continue;
 		}
@@ -1219,7 +1240,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			/* error happens with this packet, jump to next
 			 * packet! */
 			dev_kfree_skb(skb);
-			xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+			xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 			refill_cnt++;
 			continue;
 		}
@@ -1330,11 +1351,11 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 				 */
 #ifdef CONFIG_CS75XX_OFFSET_BASED_QOS
 				if (instance != CS_NI_INSTANCE_WFO)
-#else
+#else	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 				if ((instance != CS_NI_INSTANCE_WFO_PE0)
 					&& (instance != CS_NI_INSTANCE_WFO_PE1))
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
-#endif
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
+#endif	/* CONFIG_CS75XX_WFO */
 				cs_core_logic_input_set_cb(skb);
 				// FIXME: pspid <--> lspid one to one map
 				cs_cb->key_misc.orig_lspid = xram_hdr_e.bits.lspid;
@@ -1351,7 +1372,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
             			cs_cb->common.sw_only = CS_SWONLY_STATE;
             		}
         		}
-#endif
+#endif	/* CONFIG_CS75XX_WFO */
 
 #ifdef CONFIG_CS752X_FASTNET
 				cs_cb->key_misc.super_hash = xram_cpu_hdr1.bits.superhash;
@@ -1376,7 +1397,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			cs_hw_accel_tunnel_ctrl_handle(voq, skb);
 			goto SKB_HANDLED;
 		}
-#endif
+#endif	/* CS75XX_HW_ACCEL_TUNNEL */
 
 #ifdef CONFIG_CS75XX_OFFSET_BASED_QOS
         // Fill packet_type
@@ -1389,14 +1410,14 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 
             case CS_FUNC_TYPE_WIRELESS_ACCEL_11N:
                 break;
-#endif //CONFIG_CS75XX_HW_ACCEL_WIRELESS
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 
 #ifdef CONFIG_CS75XX_WFO
             case CS_FUNC_TYPE_WFO_11AC:
             case CS_FUNC_TYPE_WFO_11N:
                 packet_type = CS_APP_PKT_WFO;
                 break;
-#endif //CONFIG_CS75XX_WFO
+#endif	/* CONFIG_CS75XX_WFO */
 
             case CS_FUNC_TYPE_VPN_OFFLOAD_PE0:
                 break;
@@ -1414,9 +1435,9 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
         				packet_type = CS_APP_PKT_WFO;
         			else
         				packet_type = CS_APP_PKT_WIRELESS;
-#else
+#else	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 			        packet_type = CS_APP_PKT_WFO;
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
     			} else if (((voq == CPU_PORT7_VOQ_BASE) &&
 			                ((xram_hdr_e.bits.lspid == CS_FE_LSPID_4)  ||
 			                (xram_hdr_e.bits.lspid == CS_FE_LSPID_5))) ||
@@ -1441,12 +1462,12 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			    }
                 break;
         } /* switch(func_type) */
-#else	//CONFIG_CS75XX_OFFSET_BASED_QOS
+#else	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 #ifdef CONFIG_CS75XX_HW_ACCEL_WIRELESS
 		if (xram_hdr_e.bits.lspid == CS_FE_LSPID_3) {
 			packet_type = CS_APP_PKT_WIRELESS;
 		} else
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 		if ((instance == CS_NI_INSTANCE_WFO_PE0)
 			|| (instance == CS_NI_INSTANCE_WFO_PE1)) {
 #ifdef CONFIG_CS75XX_HW_ACCEL_WIRELESS
@@ -1454,9 +1475,9 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 				packet_type = CS_APP_PKT_WIRELESS;
 			else
 				packet_type = CS_APP_PKT_WFO;
-#else
+#else	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 			packet_type = CS_APP_PKT_WFO;
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 		} else if (((voq == CPU_PORT7_VOQ_BASE) &&
 			((xram_hdr_e.bits.lspid == CS_FE_LSPID_4) ||
 			(xram_hdr_e.bits.lspid == CS_FE_LSPID_5))) ||
@@ -1489,7 +1510,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 				}
 			}
 		}
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 
 		DBG(printk("%s:%d:: packet_type = %d\n",
 			__func__, __LINE__, packet_type));
@@ -1527,22 +1548,22 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 			        (xram_cpu_hdr0.bits.dst_voq == CPU_PORT7_VOQ_BASE) ?  lspid : instance,
 			        (xram_cpu_hdr0.bits.dst_voq == CPU_PORT7_VOQ_BASE) ?  vap4bypass : vap,
 					skb) != 1)
-#else
+#else	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 			if (cs_hw_accel_wfo_handle_rx((xram_cpu_hdr0.bits.dst_voq == CPU_PORT7_VOQ_BASE) ?
 					CS_NI_INSTANCE_WFO_802_3 : instance, voq, skb) != 1)
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 		                /*
 		                * wfo already process skb if it return non 1
 		                */
 				goto SKB_HANDLED;
 		}
-#endif
+#endif	/* CONFIG_CS75XX_WFO */
 #ifdef CONFIG_CS75XX_HW_ACCEL_WIRELESS
 		if (packet_type == CS_APP_PKT_WIRELESS) {
 			if (cs_hw_accel_wireless_handle(voq, skb, xram_cpu_hdr1.bits.sw_action) != 1)
 				goto SKB_HANDLED;
 		}
-#endif
+#endif	/* CONFIG_CS75XX_HW_ACCEL_WIRELESS */
 
 #endif /* CONFIG_CS752X_ACCEL_KERNEL */
 
@@ -1555,7 +1576,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 		if (err_virt_ni < 0) {
 			skb->dev = in_dev;
 			dev_kfree_skb(skb);
-			xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+			xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 			continue;
 		}
 #endif
@@ -1778,7 +1799,7 @@ static int ni_complete_rx_instance(struct net_device *dev, u32 instance,
 SKB_HANDLED:
 
 		done++;
-		xram_ptr = (u32 *)NI_XRAM_BASE + next_link * 2;
+		xram_ptr = (u32 *)g_iobase_xram + next_link * 2;
 	} /* end of while loop */
 
 	NI_WRITEL(next_link, NI_TOP_NI_CPUXRAM_CPU_CFG_RX_0 + (instance * 24));
@@ -1810,7 +1831,7 @@ static int has_many_rx_packets( int instance, int waterlevel)
 	hw_wr_ptr &= HW_WR_PTR;
 	next_link = (NI_READL(NI_TOP_NI_CPUXRAM_CPU_CFG_RX_0 + (instance * 24)));
 	next_link &= SW_RD_PTR;
-	xram_ptr = (u32 *) NI_XRAM_BASE + next_link * 2;
+	xram_ptr = (u32 *) g_iobase_xram + next_link * 2;
 
 	while ((next_link != hw_wr_ptr) && (done < waterlevel)) {
 		hdr_x = (HEADER_XR_T *) xram_ptr;
@@ -1818,7 +1839,7 @@ static int has_many_rx_packets( int instance, int waterlevel)
 			break;
 
 		next_link = hdr_x->bits.next_link;
-		xram_ptr = (u32 *) NI_XRAM_BASE + next_link * 2;
+		xram_ptr = (u32 *) g_iobase_xram + next_link * 2;
 		++done;
 	}
 
@@ -1921,7 +1942,11 @@ static int cs_ni_poll_dev(int instance, struct net_device *dev,
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 	if (received_pkts < budget) {
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#if 1
+	if (received_pkts < budget) {
+#else
 	if (received_pkts == 0) {
+#endif
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 
 		/*
@@ -1935,7 +1960,9 @@ static int cs_ni_poll_dev(int instance, struct net_device *dev,
 		NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
 				(instance << 3));
 
+#if 0
 		return 0;
+#endif
 	}
 
 
@@ -2000,7 +2027,11 @@ struct net_device *ni_get_device(unsigned char port_id)
 }
 EXPORT_SYMBOL(ni_get_device);
 
-#if 0	/* invalid in this kernel */
+#ifdef CSW_USE_SKB_RECYCLE
+extern bool skb_is_recycleable(const struct sk_buff *skb, int skb_size);
+extern void skb_recycle(struct sk_buff *skb);
+extern bool skb_recycle_check(struct sk_buff *skb, int skb_size);
+
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static bool cs_ni_skb_recycle(struct sk_buff *skb)
 {
@@ -2039,7 +2070,7 @@ static int cs_ni_skb_recycle(struct sk_buff *skb)
 		ret = 0;
 	}
 	put_cpu();
-#else
+#else	/* NI_RECYCLE_SKB_PER_CPU */
 	if ((skb_queue_len(&cs_ni_skb_recycle_cpu0_head) <
 				LINUX_FREE_BUF_LIST_SIZE) &&
 			skb_recycle_check(skb,
@@ -2052,17 +2083,17 @@ static int cs_ni_skb_recycle(struct sk_buff *skb)
 			//printk("%s: In ni_rx_noncache, but skb->head_pa == 0!!!\n", __func__);
 			return ret;
 		}
-#endif
+#endif	/* not used */
 
 		skb_queue_tail(&cs_ni_skb_recycle_cpu0_head, skb);
 		ret = 0;
 	}
 
-#endif
+#endif	/* NI_RECYCLE_SKB_PER_CPU */
 	return ret;
 }
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
-#endif
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 #ifdef CONFIG_CS75XX_WFO
 #include "cs75xx_ipc_wfo.h"
@@ -2099,11 +2130,11 @@ static inline int cs_dma_tx_complete_easy(int tx_qid)
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			free_count++;
 
-#if 1
-			dev_kfree_skb_any(swtxq->tx_skb[swtxq->finished_idx]);
-#else
+#ifdef CSW_USE_SKB_RECYCLE
 			if (cs_ni_skb_recycle(swtxq->tx_skb[swtxq->finished_idx]))
 				dev_kfree_skb_any(swtxq->tx_skb[swtxq->finished_idx]);
+#else
+			dev_kfree_skb_any(swtxq->tx_skb[swtxq->finished_idx]);
 #endif
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 			swtxq->tx_skb[swtxq->finished_idx] = NULL;
@@ -2308,201 +2339,201 @@ EXPORT_SYMBOL(ni_special_start_xmit_none_bypass_ne);
 #if defined(CS752X_MANAGEMENT_MODE) || defined(CONFIG_CS752X_ACCEL_KERNEL)
 int ni_special_start_xmit(struct sk_buff *skb, HEADER_A_T *header_a, u16 voq)
 {
-		ni_info_t *ni = &ni_private_data;
-		dma_rptr_t rptr_reg;
-		dma_txdesc_t *curr_desc;
-		struct net_device * dev;
-		int snd_pages;
-		int frag_id = 0, len, total_len, tx_qid = 0, lso_tx_qid;
-		//struct net_device_stats *isPtr;
-		u32 free_desc, rptr;
-		dma_addr_t word1;
-		u32 word0, word2, word3 = 0, word4, word5 = 0;
-		dma_swtxq_t *swtxq;
-		ni_header_a_0_t ni_header_a;
-		u16 tx_queue = 0;
-		struct iphdr *iph;
-		char *pkt_datap;
-		cs_kernel_accel_cb_t *cs_cb;
-		int err = -1;
+	ni_info_t *ni = &ni_private_data;
+	dma_rptr_t rptr_reg;
+	dma_txdesc_t *curr_desc;
+	struct net_device * dev;
+	int snd_pages;
+	int frag_id = 0, len, total_len, tx_qid = 0, lso_tx_qid;
+	//struct net_device_stats *isPtr;
+	u32 free_desc, rptr;
+	dma_addr_t word1;
+	u32 word0, word2, word3 = 0, word4, word5 = 0;
+	dma_swtxq_t *swtxq;
+	ni_header_a_0_t ni_header_a;
+	u16 tx_queue = 0;
+	struct iphdr *iph;
+	char *pkt_datap;
+	cs_kernel_accel_cb_t *cs_cb;
+	int err = -1;
 
-		cs_cb = CS_KERNEL_SKB_CB(skb);
-		dev = ni_private_data.dev[0];
-		//lso_tx_qid = get_dma_lso_txqid(dev);
-		/* make sure not use the same tx queue as ni driver*/
-		if (smp_processor_id() == 0)
-			lso_tx_qid = PE_DMA_LSO_TXQ_IDX - 1;
-		else
-			lso_tx_qid = PE_DMA_LSO_TXQ_IDX;
+	cs_cb = CS_KERNEL_SKB_CB(skb);
+	dev = ni_private_data.dev[0];
+	//lso_tx_qid = get_dma_lso_txqid(dev);
+	/* make sure not use the same tx queue as ni driver*/
+	if (smp_processor_id() == 0)
+		lso_tx_qid = PE_DMA_LSO_TXQ_IDX - 1;
+	else
+		lso_tx_qid = PE_DMA_LSO_TXQ_IDX;
 
-		if (voq == 0xffff)
-			tx_queue = ENCAPSULATION_VOQ_BASE; /* default voq */
-		else
-			tx_queue = voq;
+	if (voq == 0xffff)
+		tx_queue = ENCAPSULATION_VOQ_BASE; /* default voq */
+	else
+		tx_queue = voq;
 
-		/* DMA_DMA_LSO_DMA_LSO_INTERRUPT_0, interrupt first level
-		 * We are using the same tx_qid as for DMA LSO queue */
-		swtxq = &ni->swtxq[lso_tx_qid];
+	/* DMA_DMA_LSO_DMA_LSO_INTERRUPT_0, interrupt first level
+	 * We are using the same tx_qid as for DMA LSO queue */
+	swtxq = &ni->swtxq[lso_tx_qid];
 
-		ni_header_a.bits32 = HDRA_CPU_PKT; /*ByPASS FE*/
+	ni_header_a.bits32 = HDRA_CPU_PKT; /*ByPASS FE*/
 
 #ifndef CS752X_NI_TX_COMPLETE_INTERRUPT
-		cancel_tx_completion_timer(dev);
-		if (check_to_perform_tx_complete(lso_tx_qid))
-			cs_dma_tx_complete(lso_tx_qid, dev);
-		else
-			update_tx_completion_timer(lso_tx_qid, dev);
+	cancel_tx_completion_timer(dev);
+	if (check_to_perform_tx_complete(lso_tx_qid))
+		cs_dma_tx_complete(lso_tx_qid, dev);
+	else
+		update_tx_completion_timer(lso_tx_qid, dev);
 #endif
-		spin_lock(&swtxq->lock);
-		if (swtxq->wptr >= swtxq->finished_idx)
-			free_desc = swtxq->total_desc_num - swtxq->wptr - 1 +
-				swtxq->finished_idx;
-		else
-			free_desc = swtxq->finished_idx - swtxq->wptr - 1;
+	spin_lock(&swtxq->lock);
+	if (swtxq->wptr >= swtxq->finished_idx)
+		free_desc = swtxq->total_desc_num - swtxq->wptr - 1 +
+			swtxq->finished_idx;
+	else
+		free_desc = swtxq->finished_idx - swtxq->wptr - 1;
 
-		/* try to reserve 1 descriptor in case skb is extended in xmit
-		 * function */
-		snd_pages = skb_shinfo(skb)->nr_frags + 1;
+	/* try to reserve 1 descriptor in case skb is extended in xmit
+	 * function */
+	snd_pages = skb_shinfo(skb)->nr_frags + 1;
 
-		if (free_desc <= snd_pages) {
-			err = NETDEV_TX_BUSY;
-			//printk("%s free_desc=%d <= snd_pages=%d \n", __func__, free_desc, snd_pages);
-			goto free_skb;
+	if (free_desc <= snd_pages) {
+		err = NETDEV_TX_BUSY;
+		//printk("%s free_desc=%d <= snd_pages=%d \n", __func__, free_desc, snd_pages);
+		goto free_skb;
+	}
+
+	total_len = skb->len;
+	/* BUG#29162.Workaround. if packet length < 24, DMA LSO can not
+	 * send packet out. */
+	if (total_len < MIN_DMA_SIZE)
+		goto free_skb;
+
+	while (snd_pages != 0) {
+		curr_desc = swtxq->desc_base + swtxq->wptr;
+
+		if (frag_id == 0) {
+			pkt_datap = skb->data;
+			len = total_len - skb->data_len;
+		} else {
+			skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_id - 1];
+			pkt_datap =
+				page_address(frag->page.p) + frag->page_offset;
+			len = frag->size;
+			if (len > total_len)
+				printk("Fatal Error! Send Frag size %d > "
+						"Total Size %d!!\n", len,
+						total_len);
 		}
 
-		total_len = skb->len;
-		/* BUG#29162.Workaround. if packet length < 24, DMA LSO can not
-		 * send packet out. */
-		if (total_len < MIN_DMA_SIZE)
-			goto free_skb;
+		word0 = len | OWN_BIT;
+		word2 = 0;
 
-		while (snd_pages != 0) {
-			curr_desc = swtxq->desc_base + swtxq->wptr;
-
-			if (frag_id == 0) {
-				pkt_datap = skb->data;
-				len = total_len - skb->data_len;
-			} else {
-				skb_frag_t *frag = &skb_shinfo(skb)->frags[frag_id - 1];
-				pkt_datap =
-					page_address(frag->page.p) + frag->page_offset;
-				len = frag->size;
-				if (len > total_len)
-					printk("Fatal Error! Send Frag size %d > "
-							"Total Size %d!!\n", len,
-							total_len);
-			}
-
-			word0 = len | OWN_BIT;
-			word2 = 0;
-
-			skb->ip_summed = CHECKSUM_UNNECESSARY;
-			word3 = set_desc_word3_calc_l4_chksum(skb, dev,
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
+		word3 = set_desc_word3_calc_l4_chksum(skb, dev,
 						total_len, frag_id);
-			/* set_desc_word3_calc_l4_chksum may update checksum value,
-			 * so we do dma_map_single after setting word3.
-			 */
+		/* set_desc_word3_calc_l4_chksum may update checksum value,
+		 * so we do dma_map_single after setting word3.
+		 */
 #if 0	/* not used */
-			if (((u32)pkt_datap >= consistent_base) &&
-					((u32)pkt_datap <= CONSISTENT_END))
-				word1 = skb->head_pa + (skb->data - skb->head);
-			else{
+		if (((u32)pkt_datap >= consistent_base) &&
+				((u32)pkt_datap <= CONSISTENT_END))
+			word1 = skb->head_pa + (skb->data - skb->head);
+		else{
 #endif	/* not used */
 #ifdef CONFIG_CS752X_PROC
-				if( cs_acp_enable & CS75XX_ACP_ENABLE_NI){
-					word1 = virt_to_phys(pkt_datap)|GOLDENGATE_ACP_BASE;
-				}
-				else
+			if( cs_acp_enable & CS75XX_ACP_ENABLE_NI){
+				word1 = virt_to_phys(pkt_datap)|GOLDENGATE_ACP_BASE;
+			}
+			else
 #endif
 
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
-					/* ...if data buffer is clean, flush only header */
-					word1 = dma_map_single(NULL, (void *)pkt_datap,
-						skb->dirty_buffer ? len : sizeof(struct ethhdr),
-						DMA_TO_DEVICE);
+				/* ...if data buffer is clean, flush only header */
+				word1 = dma_map_single(NULL, (void *)pkt_datap,
+					skb->dirty_buffer ? len : sizeof(struct ethhdr),
+					DMA_TO_DEVICE);
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
-					word1 = dma_map_single(NULL, (void *)pkt_datap, len,
-						DMA_TO_DEVICE);
+				word1 = dma_map_single(NULL, (void *)pkt_datap, len,
+					DMA_TO_DEVICE);
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 #if 0	/* not used */
-			}
-#endif
-
-			if (snd_pages == 1) {
-				word0 |= EOF_BIT; /* EOF */
-				if (total_len < 64)
-					word3 |= LSO_IP_LENFIX_EN;
-				swtxq->tx_skb[swtxq->wptr] = skb;
-			} else {
-				swtxq->tx_skb[swtxq->wptr] = NULL;
-				/* FIXME: if packet length > 1514, there are fragment or
-				 * or segment, we need clean this bit */
-				word3 &= ~LSO_IP_LENFIX_EN;
-			}
-
-			if (frag_id == 0) {
-				word0 |= SOF_BIT; /* SOF */
-				word2 = (total_len << 16) & 0xFFFF0000;
-				/* Enable LSO Debug:
-				 * "echo 4 > /proc/driver/cs752x/ne/ni/ni_debug" */
-				/* Disable LSO Debug:
-				 * "echo 0 > /proc/driver/cs752x/ne/ni/ni_debug" */
-#ifdef CONFIG_CS752X_PROC
-				if ((total_len > (dev->mtu + 14)) &&
-						(cs_ni_debug & DBG_NI_LSO))
-					printk("DMA LSO enable: MTU = %d, Packet "
-							"Length %d\n", (dev->mtu + 14),
-							total_len);
-#endif
-			}
-
-			ni_header_a.bits.dvoq = tx_queue;
-			word4 = ni_header_a.bits32;
-
-			curr_desc->word1.bits32 = (u32)word1;
-			curr_desc->word2.bits32 = word2;
-			curr_desc->word3.bits32 = word3;
-			curr_desc->word4.bits32 = word4;
-			curr_desc->word0.bits32 = word0;
-
-			free_desc--;
-
-#ifdef CONFIG_CS752X_PROC
-			if (cs_ni_debug & DBG_NI_DUMP_TX) {
-				iph = ip_hdr(skb);
-				printk("Word0:0x%08X, Word1:0x%08X, ", word0, word1);
-				printk("Word2:0x%08X, Word3:0x%08X, ", word2, word3);
-				printk("Word4:0x%08X, Word5:0x%08X, ", word4, word5);
-				printk("iph->id = 0x%X\n", iph->id);
-				printk("%s:: TX: DMA packet pkt_len %d, skb->data = 0x"
-						"%p\n", __func__, len, skb->data);
-				ni_dm_byte((u32)skb->data, len);
-			}
-#endif
-
-			swtxq->wptr = RWPTR_ADVANCE_ONE(swtxq->wptr,
-					swtxq->total_desc_num);
-			frag_id++;
-			snd_pages--;
 		}
-		smp_wmb();
-		DMA_LSO_WRITEL(swtxq->wptr, swtxq->wptr_reg);
+#endif
+
+		if (snd_pages == 1) {
+			word0 |= EOF_BIT; /* EOF */
+			if (total_len < 64)
+				word3 |= LSO_IP_LENFIX_EN;
+			swtxq->tx_skb[swtxq->wptr] = skb;
+		} else {
+			swtxq->tx_skb[swtxq->wptr] = NULL;
+			/* FIXME: if packet length > 1514, there are fragment or
+			 * or segment, we need clean this bit */
+			word3 &= ~LSO_IP_LENFIX_EN;
+		}
+
+		if (frag_id == 0) {
+			word0 |= SOF_BIT; /* SOF */
+			word2 = (total_len << 16) & 0xFFFF0000;
+			/* Enable LSO Debug:
+			 * "echo 4 > /proc/driver/cs752x/ne/ni/ni_debug" */
+			/* Disable LSO Debug:
+			 * "echo 0 > /proc/driver/cs752x/ne/ni/ni_debug" */
+#ifdef CONFIG_CS752X_PROC
+			if ((total_len > (dev->mtu + 14)) &&
+					(cs_ni_debug & DBG_NI_LSO))
+				printk("DMA LSO enable: MTU = %d, Packet "
+						"Length %d\n", (dev->mtu + 14),
+						total_len);
+#endif
+		}
+
+		ni_header_a.bits.dvoq = tx_queue;
+		word4 = ni_header_a.bits32;
+
+		curr_desc->word1.bits32 = (u32)word1;
+		curr_desc->word2.bits32 = word2;
+		curr_desc->word3.bits32 = word3;
+		curr_desc->word4.bits32 = word4;
+		curr_desc->word0.bits32 = word0;
+
+		free_desc--;
 
 #ifdef CONFIG_CS752X_PROC
 		if (cs_ni_debug & DBG_NI_DUMP_TX) {
-			rptr_reg.bits32 = DMA_LSO_READL(swtxq->rptr_reg);
-			rptr = rptr_reg.bits.rptr;
-			printk("%s::tx reg wptr 0x%08x, rptr 0x%08x\n", __func__,
-					swtxq->wptr, rptr_reg.bits32);
+			iph = ip_hdr(skb);
+			printk("Word0:0x%08X, Word1:0x%08X, ", word0, word1);
+			printk("Word2:0x%08X, Word3:0x%08X, ", word2, word3);
+			printk("Word4:0x%08X, Word5:0x%08X, ", word4, word5);
+			printk("iph->id = 0x%X\n", iph->id);
+			printk("%s:: TX: DMA packet pkt_len %d, skb->data = 0x"
+					"%p\n", __func__, len, skb->data);
+			ni_dm_byte((u32)skb->data, len);
 		}
 #endif
-		spin_unlock(&swtxq->lock);
-		return 0;
-free_skb:
-		spin_unlock(&swtxq->lock);
-		dev_kfree_skb(skb);
-		return err;
 
+		swtxq->wptr = RWPTR_ADVANCE_ONE(swtxq->wptr,
+				swtxq->total_desc_num);
+		frag_id++;
+		snd_pages--;
+	}
+	smp_wmb();
+	DMA_LSO_WRITEL(swtxq->wptr, swtxq->wptr_reg);
+
+#ifdef CONFIG_CS752X_PROC
+	if (cs_ni_debug & DBG_NI_DUMP_TX) {
+		rptr_reg.bits32 = DMA_LSO_READL(swtxq->rptr_reg);
+		rptr = rptr_reg.bits.rptr;
+		printk("%s::tx reg wptr 0x%08x, rptr 0x%08x\n", __func__,
+				swtxq->wptr, rptr_reg.bits32);
+	}
+#endif
+	spin_unlock(&swtxq->lock);
+	return 0;
+
+free_skb:
+	spin_unlock(&swtxq->lock);
+	dev_kfree_skb(skb);
+	return err;
 }
 #endif	/* CS752X_MANAGEMENT_MODE , CONFIG_CS752X_ACCEL_KERNEL */
 
@@ -3022,7 +3053,7 @@ static void cs_ni_init_xram_mem(void)
 	NI_TOP_NI_CPUXRAM_ADRCFG_TX_0_t xram_tx_addr, xram_tx_addr_mask;
 
 	ni = &ni_private_data;
-	ni_xram_base = (u32 *)NI_XRAM_BASE;
+	ni_xram_base = (u32 *)g_iobase_xram;
 
 	/* clear XRAM */
 	for (i = 0; i <= XRAM_RX_INSTANCE; i++)
@@ -3772,12 +3803,14 @@ static inline void cs_ni_reset_tx_ring(void)
 					i, rptr_reg.bits32));
 	}
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 	clean_skb_recycle_buffer();
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 	clean_skb_recycle_buffer(NULL);
 	smp_call_function((void *)clean_skb_recycle_buffer, NULL, 1);
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 }
 
 static void cs_ni_reset_task(struct work_struct *work)
@@ -4484,6 +4517,35 @@ static inline int cs_ni_has_work(int instance)
 }
 #endif
 
+static int irq_to_idx(int irq)
+{
+	int i;
+	int res = -1;
+
+	for (i = 0 ; i < GE_PORT_NUM ; i++) {
+		if (irq == g_irq_eth[i]) {
+			res = i;
+			goto l_exit;
+		}
+	}
+#if 0
+	if (irq == g_irq_ni_wfo_pe0)
+		res = IRQ_NI_RX_XRAM3 - IRQ_NI_RX_XRAM0;
+	else if  (irq == g_irq_ni_wfo_pe1)
+		res = IRQ_NI_RX_XRAM4 - IRQ_NI_RX_XRAM0;
+	else if  (irq == g_irq_ni_wfo)
+		res = IRQ_NI_RX_XRAM5 - IRQ_NI_RX_XRAM0;
+	else
+#endif
+	if (irq == g_irq_ni_pe)
+		res = IRQ_NI_RX_XRAM6 - IRQ_NI_RX_XRAM0;
+	else if (irq == g_irq_ni_arp)
+		res = IRQ_NI_RX_XRAM7 - IRQ_NI_RX_XRAM0;
+
+  l_exit:;
+	return res;
+}
+
 /*
  * Handles RX interrupts.
  */
@@ -4499,7 +4561,7 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 
 	const int map[] = { 0, 1, 2, 5, 6 };
 
-	i = irq - IRQ_NI_RX_XRAM0;
+	i = irq_to_idx(irq);
 	status = NI_READL(NI_TOP_NI_CPUXRAM_RXPKT_0_INTERRUPT_0 + i * 8);
 
 	if (status == 0)
@@ -4515,8 +4577,9 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 					ni_napi_budget, NULL);
 		NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
 	}
-#else
-  #ifndef CS752X_NI_NAPI
+#else	/* CONFIG_CS75XX_KTHREAD_RX */
+
+#ifndef CS752X_NI_NAPI
 	for (i = 0; i <= XRAM_INST_MAX; i++) {
 		status = NI_READL(NI_TOP_NI_CPUXRAM_RXPKT_0_INTERRUPT_0 + i * 8);
 		if (status != 0) {
@@ -4527,9 +4590,9 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 			NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
 		}
 	}
-#else
+#else	/* CS752X_NI_NAPI */
 
-	i = irq - IRQ_NI_RX_XRAM0;
+	i = irq_to_idx(irq);
 	status = NI_READL(NI_TOP_NI_CPUXRAM_RXPKT_0_INTERRUPT_0 + i * 8);
 	if (status != 0) {
 		NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
@@ -4543,14 +4606,15 @@ static irqreturn_t cs_ni_rx_interrupt(int irq, void *dev_instance)
 			NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + i * 8);
 		}
 
-#else
+#else	/* CONFIG_SMB_TUNING */
 		tp = netdev_priv((struct net_device *) dev_instance);
 		napi_schedule(&tp->napi);
-#endif
+#endif	/* CONFIG_SMB_TUNING */
 	}
 
-  #endif
-#endif
+#endif	/* CS752X_NI_NAPI */
+#endif	/* CONFIG_CS75XX_KTHREAD_RX */
+
 	//spin_unlock_irqrestore(&ni_private_data.rx_lock, flags);
 	return IRQ_HANDLED;
 }
@@ -4659,18 +4723,16 @@ int cs_ni_open(struct net_device *dev)
 		for (jj = GE_PORT_NUM; jj < CS_NI_IRQ_DEV; jj++) {
 			tmp_dev = ni_private_data.dev[jj];
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-			init_rx_task( tmp_dev->irq - IRQ_NI_RX_XRAM0);
+			init_rx_task( irq_to_idx(tmp_dev->irq) );
 #endif
-#ifdef NOT_YET
 			retval += request_irq(tmp_dev->irq, cs_ni_rx_interrupt,
 					0 /* IRQF_SHARED */, tmp_dev->name, tmp_dev);
-#endif
 			tmp_tp = netdev_priv(tmp_dev);
 #ifdef CS752X_NI_NAPI
 			napi_enable(&tmp_tp->napi);
 #endif
 			NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-					((tmp_tp->irq - IRQ_NI_RX_XRAM0) * 8));
+					irq_to_idx(tmp_tp->irq) * 8);
 		}
 		if (retval != 0) {
 			printk("%s::Error !", __func__);
@@ -4682,13 +4744,11 @@ int cs_ni_open(struct net_device *dev)
 	cs_ni_init_port(dev);
 	cs_ni_set_short_term_shaper(tp);
 
-#ifdef NOT_YET
 	retval = request_irq(tp->irq, cs_ni_rx_interrupt,
 				0 /* IRQF_SHARED */, dev->name, dev);
-#endif
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-	init_rx_task( tp->irq - IRQ_NI_RX_XRAM0);
+	init_rx_task( irq_to_idx(tp->irq) );
 #endif
 	if (retval != 0) {
 		printk("%s::Error !", __func__);
@@ -4702,15 +4762,13 @@ int cs_ni_open(struct net_device *dev)
 	/* Enable XRAM Rx interrupts at this point */
 	//cs_ni_enable_xram_intr(tp->port_id, XRAM_DIRECTION_RX);
 	NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-			((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+			(irq_to_idx(tp->irq) * 8));
 
 	if (ne_irq_register == 0) {
 #if defined(CONFIG_GENERIC_IRQ)
-#ifdef NOT_YET
 		retval += request_irq(g_irq_global, ni_generic_interrupt,
 				0 /* IRQF_SHARED */, "NI generic",
 				(struct net_device *)&ni_private_data);
-#endif
 #endif
 #ifdef CS752X_NI_TX_COMPLETE_INTERRUPT
 		for (jj = 0; jj < 6; jj++)
@@ -4771,10 +4829,12 @@ int cs_ni_open(struct net_device *dev)
 	if (tp->port_id == GE_PORT2 && tp->ni_driver_state == 0)
 		tp->ni_driver_state = 1;
 #endif
+#ifdef CSW_USE_SKB_RECYCLE
 #ifndef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 	if(ni_rx_noncache == 0 && qm_acp_enabled == 0)
                 cs_ni_prealloc_free_buffer(dev);
 #endif /* ! CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 	return 0;
 }
 
@@ -4808,16 +4868,16 @@ int cs_ni_close(struct net_device *dev)
 
 	cancel_tx_completion_timer(dev);
 
-	NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + ((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+	NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 + (irq_to_idx(tp->irq) * 8));
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-	exit_rx_kthread( dev->irq - IRQ_NI_RX_XRAM0);
+	exit_rx_kthread( irq_to_idx(dev->irq) );
 #endif
 	if (active_dev == 0) {
 		if (ne_irq_register != 0) {
 			ne_irq_register = 0;
 #if defined(CONFIG_GENERIC_IRQ)
-			free_irq(IRQ_NET_ENG,
+			free_irq(g_irq_global,
 				 (struct net_device *)&ni_private_data);
 #endif
 		}
@@ -4831,19 +4891,21 @@ int cs_ni_close(struct net_device *dev)
 			napi_disable(&tmp_tp->napi);
 #endif
 			NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-					((tmp_tp->irq - IRQ_NI_RX_XRAM0) * 8));
+					(irq_to_idx(tmp_tp->irq) * 8));
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-			exit_rx_kthread( tmp_dev->irq - IRQ_NI_RX_XRAM0);
+			exit_rx_kthread( irq_to_idx(tmp_dev->irq) );
 #endif
 		}
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 		clean_skb_recycle_buffer();
 #else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
 		clean_skb_recycle_buffer(NULL);
 		smp_call_function(clean_skb_recycle_buffer, NULL, 1);
 #endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 	}
 
 #ifdef CONFIG_CS752X_VIRTUAL_NETWORK_INTERFACE
@@ -5091,6 +5153,7 @@ static u32 set_desc_word3_calc_l4_chksum(struct sk_buff *skb,
 #ifndef CONFIG_CS75XX_OFFSET_BASED_QOS
 extern cs_port_id_t cs_qos_get_voq_id(struct sk_buff *skb);
 #endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+
 static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	ni_info_t *ni = &ni_private_data;
@@ -5227,12 +5290,12 @@ static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev)
         if ((cs_cb == NULL) && (skb->protocol == htons(ETH_P_ARP))&&
 #ifdef CONFIG_CS752X_PROC
 		(cs_qos_preference == CS_QOS_PREF_PORT)
-#endif
+#endif	/* CONFIG_CS752X_PROC */
 	) {
             tx_queue += 7 - CS_QOS_ARP_DEFAULT_PRIORITY;
             //printk("### tx_queue: %d\n", tx_queue);
         }
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif /* CONFIG_CS75XX_OFFSET_BASED_QOS */
 
 	if ((cs_cb != NULL) && (cs_cb->common.tag == CS_CB_TAG)) {
 		if (cs_cb->fastnet.word3_valid) {
@@ -5259,24 +5322,24 @@ static int cs_ni_start_xmit(struct sk_buff *skb, struct net_device *dev)
                         tx_queue += cs_qos_get_voq_id(skb);
                     }
 //--BUG#39672
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif /* CONFIG_CS75XX_OFFSET_BASED_QOS */
 				if (!(cs_cb->common.module_mask & CS_MOD_MASK_WITH_QOS)) {
 					cs_cb->action.voq_pol.d_voq_id = tx_queue;
 #ifdef CONFIG_CS75XX_OFFSET_BASED_QOS
                     cs_cb->action.voq_pol.voq_policy = 1;
-#endif //CONFIG_CS75XX_OFFSET_BASED_QOS
+#endif	/* CONFIG_CS75XX_OFFSET_BASED_QOS */
 				}
 				cs_cb->common.output_dev = dev;
 #ifdef CONFIG_CS75XX_WFO
 				if (cs_hw_accel_wfo_handle_tx(tp->port_id, skb) == 1)
-#endif
+#endif	/* CONFIG_CS75XX_WFO */
 				cs_core_logic_add_connections(skb);
 
 				/* anything else? */
 			}
 		}
 	}
-#endif
+#endif	/* CONFIG_CS752X_ACCEL_KERNEL */
 
 	while (snd_pages != 0) {
 		curr_desc = swtxq->desc_base + swtxq->wptr;
@@ -5834,9 +5897,10 @@ static int cs_mdio_reset(struct mii_bus *mii_bus)
 	return 0;
 }
 
-static int cs_mdio_init(ni_info_t *ni, mac_info_t * tp)
+static int cs_mdio_init(struct platform_device *pdev, ni_info_t *ni, mac_info_t * tp)
 {
 	int i, err;
+	struct device_node *node;
 
 	if (tp->existed & CS_MDIOBUS_INITED)
 		return 0;
@@ -5864,16 +5928,29 @@ static int cs_mdio_init(ni_info_t *ni, mac_info_t * tp)
 	tp->mdio_bus->write = &cs_mdiobus_write;
 	tp->mdio_bus->reset = &cs_mdio_reset;
 	tp->mdio_bus->phy_mask = ~(1 << tp->phy_addr);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
+#else
+	tp->mdio_bus->irq = kmalloc(sizeof(int) * PHY_MAX_ADDR, GFP_KERNEL);
+#endif
 
 	for (i = 0; i < PHY_MAX_ADDR; i++)
 		tp->mdio_bus->irq[i] = PHY_POLL;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
+	node = of_get_child_by_name(pdev->dev.of_node, "mdio");
+#else
+	node = NULL;
+#endif
 	/*
 	 * The bus registration will look for all the PHYs on the mdio bus.
 	 * Unfortunately, it does not ensure the PHY is powered up before
 	 * accessing the PHY ID registers.
 	 */
-	err = mdiobus_register(tp->mdio_bus);
+	if (node) {
+		err = of_mdiobus_register(tp->mdio_bus, node);
+		of_node_put(node);
+	} else
+		err = mdiobus_register(tp->mdio_bus);
 	if (err)
 		goto err_out_free_mdio_irq;
 
@@ -5882,7 +5959,10 @@ static int cs_mdio_init(ni_info_t *ni, mac_info_t * tp)
 	return 0;
 
 err_out_free_mdio_irq:
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
+#else
 	kfree(tp->mdio_bus->irq);
+#endif
 err_out_free_mdio_bus:
 	mdiobus_free(tp->mdio_bus);
 err_out:
@@ -6244,6 +6324,7 @@ static void cs_ni_init_virtual_instance(int dev_idx, int irq, char * name)
 	snprintf(dev->name, IFNAMSIZ, name);
 }
 
+#ifdef CSW_USE_SKB_RECYCLE
 #ifndef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
 static void cs_ni_prealloc_free_buffer(struct net_device *dev)
 {
@@ -6268,6 +6349,7 @@ static void cs_ni_prealloc_free_buffer(struct net_device *dev)
 #endif
 }
 #endif /* ! CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 /* 3.4.11 Change for register as platform device */
 static int __init cs_ni_init_module_probe(struct platform_device *pdev)
@@ -6284,6 +6366,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	struct resource* r;
 	int irq;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "global");
 	if (!r) {
 		printk("get_resource failed at GLOBAL region .\n");
@@ -6380,7 +6463,108 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	}
 	g_iobase_sch = ioaddr;
 
+	r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "xram");
+	if (!r){
+		printk("get_resource failed at XRAM region .\n");
+		goto l_resource_err;
+	}
+	ioaddr = devm_ioremap_resource(&pdev->dev, r);
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at XRAM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_xram = ioaddr;
+#else	/* KERNEL_VERSION */
+	{
+	struct resource	rtmp;
+	r = &rtmp;
+
+	r->start = 0xF0000000;
+	r->end = r->start + 0x0100;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at GLOBAL region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_global = ioaddr;
+
+	r->start = 0xF0010000;
+	r->end = r->start + 0x0500;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at NI region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_ni = ioaddr;
+
+	r->start = 0xF00700A0;
+	r->end = r->start + 0x48;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at MDIO region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_mdio = ioaddr;
+
+	r->start = 0xF0090000;
+	r->end = r->start + 0x0400;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at DMA_LSO region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_dma_lso = ioaddr;
+
+	r->start = 0xF0020000;
+	r->end = r->start + 0x4000;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at FE region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_fe = ioaddr;
+
+	r->start = 0xF0030000;
+	r->end = r->start + 0x400;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at QM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_qm = ioaddr;
+
+	r->start = 0xF0040000;
+	r->end = r->start + 0x800;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at TM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_tm = ioaddr;
+
+	r->start = 0xF0060000;
+	r->end = r->start + 0x100;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at SCH region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_sch = ioaddr;
+
+	r->start = 0xF0400000;
+	r->end = r->start + 0x100000;
+	ioaddr = ioremap(r->start, resource_size(r));
+	if (IS_ERR(ioaddr)){
+		printk("ioremap() failed at XRAM region .\n");
+		goto l_resource_err;
+	}
+	g_iobase_xram = ioaddr;
+
+	}
+#endif	/* KERNEL_VERSION */
+
 	/* get IRQ resources */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 	for(i = 0 ; i < GE_PORT_NUM ; i++) {
 		char tmpstr[16];
 		sprintf(tmpstr, "eth%d", i);
@@ -6412,6 +6596,14 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 		goto l_resource_err;
 	}
 	g_irq_ni_arp = irq;
+#else	/* KERNEL_VERSION */
+	for(i = 0 ; i < GE_PORT_NUM ; i++) {
+		g_irq_eth[i] = IRQ_NI_RX_XRAM0 + i;
+	}
+	g_irq_global = IRQ_NET_ENG;
+	g_irq_ni_pe = IRQ_NI_RX_XRAM6;
+	g_irq_ni_arp = IRQ_NI_RX_XRAM7;
+#endif	/* KERNEL_VERSION */
 
 	/* debug_Aaron 2012/12/11 implement non-cacheable for performace tuning */
 #ifndef CONFIG_CS75XX_WFO
@@ -6435,10 +6627,12 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 	spin_lock_init(&sw_qm_cnt_lock);
 	spin_lock_init(&active_dev_lock);
 
+#ifdef CSW_USE_SKB_RECYCLE
 	skb_queue_head_init(&cs_ni_skb_recycle_cpu0_head);
 #ifdef  NI_RECYCLE_SKB_PER_CPU
 	skb_queue_head_init(&cs_ni_skb_recycle_cpu1_head);
 #endif
+#endif	/* CSW_USE_SKB_RECYCLE */
 
 	cs_ne_init_cfg();
 
@@ -6572,7 +6766,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 
 		if (dev_has_phy == true) {
 			/* ASIC will autodetect PHY status */
-			err = cs_mdio_init(ni, tp);
+			err = cs_mdio_init(pdev, ni, tp);
 			/* FIXME: need free net_device */
 			if (err)
 				return err;
@@ -6697,7 +6891,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 						0 /* IRQF_SHARED */, tmp_dev->name, tmp_dev);
 
 #ifdef CONFIG_CS75XX_KTHREAD_RX
-		init_rx_task( tmp_dev->irq - IRQ_NI_RX_XRAM0);
+		init_rx_task( irq_to_idx(tmp_dev->irq) );
 #endif
 #ifdef CS752X_NI_NAPI
 		tp = netdev_priv(tmp_dev);
@@ -6705,7 +6899,7 @@ static int __init cs_ni_init_module_probe(struct platform_device *pdev)
 		napi_enable(&tp->napi);
 #endif
 		NI_WRITEL(1, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-				 ((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+				 (irq_to_idx(tp->irq) * 8));
 	}
 
 	cs75xx_pni_init();
@@ -6791,7 +6985,7 @@ static int cs_ni_cleanup_module_exit(struct platform_device *pdev)
 		tp = netdev_priv(tmp_dev);
 		napi_disable(&tp->napi);
 		NI_WRITEL(0, NI_TOP_NI_CPUXRAM_RXPKT_0_INTENABLE_0 +
-				((tp->irq - IRQ_NI_RX_XRAM0) * 8));
+				(irq_to_irx(tp->irq) * 8));
 		free_netdev(tmp_dev);
 	}
 #endif
@@ -6927,8 +7121,10 @@ static struct platform_driver cs_ni_platform_driver = {
 	.probe		= cs_ni_init_module_probe,
 	.remove		= __exit_p(cs_ni_cleanup_module_exit),
 	.driver = {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,0,0))
 		.name		= "cs752x-eth",
-#if 0
+#else
+		.name		= "g2-ne",
 		.bus		= &platform_bus_type,
 #endif
 		.owner		= THIS_MODULE,

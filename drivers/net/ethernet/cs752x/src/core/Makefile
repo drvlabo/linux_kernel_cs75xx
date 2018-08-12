@@ -36,7 +36,10 @@ EXTRA_CFLAGS += -I$(srctree)/drivers/net/ethernet/cs752x/src/sch
 
 obj-$(CONFIG_NET_VENDOR_CS752X) += cs752x_core.o
 cs752x_core-objs := cs_vtable.o cs_core_vtable.o cs_hmu.o cs_core_hmu.o cs_core_mcu.o \
-		cs_core_skb_cb.o cs_core_rule_hmu.o
+		cs_core_rule_hmu.o
+ifdef CONFIG_CS752X_ACCEL_KERNEL
+cs752x_core-objs += cs_core_skb_cb.o
+endif
 ifdef CONFIG_CS752X_FASTNET
 cs752x_core-objs += cs_core_fastnet.o
 endif

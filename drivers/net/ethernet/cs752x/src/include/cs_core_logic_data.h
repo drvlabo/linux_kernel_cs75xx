@@ -22,7 +22,9 @@
 #include "cs75xx_fe_core_table.h"
 #include <net/xfrm.h>
 
+#ifdef CONFIG_CS752X_ACCEL_KERNEL
 #define CS_KERNEL_SKB_CB(skb) (cs_kernel_accel_cb_t *) (skb->cs_cb_loc)
+#endif
 
 #define CS_DEFAULT_VOQ		255
 #define CS_DEFAULT_ROOT_VOQ	47
