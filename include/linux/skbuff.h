@@ -657,6 +657,15 @@ struct sk_buff {
 
 	unsigned long		_skb_refdst;
 	void			(*destructor)(struct sk_buff *skb);
+
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	bool                    (*skb_recycle) (struct sk_buff *skb);
+#else /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#ifdef CONFIG_SMB_TUNING
+	int                     (*skb_recycle) (struct sk_buff *skb);
+#endif
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 #ifdef CONFIG_XFRM
 	struct	sec_path	*sp;
 #endif
@@ -725,6 +734,11 @@ struct sk_buff {
 	__u8			wifi_acked:1;
 
 	__u8			no_fcs:1;
+
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	__u8			dirty_buffer:1;
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+
 	/* Indicates the inner headers are valid in the skbuff. */
 	__u8			encapsulation:1;
 	__u8			encap_hdr_csum:1;
@@ -801,6 +815,12 @@ struct sk_buff {
 	sk_buff_data_t		end;
 	unsigned char		*head,
 				*data;
+#ifdef CONFIG_ARCH_GOLDENGATE
+#ifdef CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT
+	unsigned char		*map_end;
+#endif /* CONFIG_CS75XX_NI_EXPERIMENTAL_SW_CACHE_MANAGEMENT */
+#endif /* CONFIG_ARCH_GOLDENGATE */
+
 	unsigned int		truesize;
 	atomic_t		users;
 };
