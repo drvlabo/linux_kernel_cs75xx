@@ -124,3 +124,13 @@
 &nandc {
 	status = "ok";
 };
+
+&ether {
+	status = "ok";
+
+	mdio {
+		phy0: ethernet-phy@1 {
+			reg = <1>;
+		};
+	};
+};
